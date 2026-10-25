@@ -9,6 +9,10 @@
 #endif
 
 #include "Engine.h"
+#include "KHGSplash.h"   // [KHG] retail splash read from the user's Khg.exe
+#ifdef PLATFORM_WIN32
+#include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
+#endif
 #ifdef PLATFORM_ANDROID
 #include <android/log.h>
 #include <errno.h>
@@ -3923,6 +3927,9 @@ UEngine* InitEngine()
 
 	// Platform init.
 	appInit();
+#ifdef PLATFORM_WIN32
+	KHGDesktopLogConfigStatus();   // [KHG] report how KHGWin.ini was set up (KHGDesktopConfig.cpp)
+#endif
 	GDynMem.Init( 65536 );
 
 	// Init subsystems.
@@ -3959,10 +3966,10 @@ UEngine* InitEngine()
 	unguard;
 }
 
-#if defined(PLATFORM_ANDROID)
-// [KHG] UNREAL_ANDROID_INTRO_FMV_V1: play the user's own INTRO.AVI once before the main menu via the native playavi handler (the original used Windows VFW, broken on modern Windows); skippable, no-op if absent.
+// [KHG] Intro movie + MicroProse splash before the main menu, on every SDL platform (Android and the Windows desktop build).
+// UNREAL_ANDROID_INTRO_FMV_V1: play the user's own INTRO.AVI once before the main menu via the native playavi handler (the original used Windows VFW, broken on modern Windows); skippable, no-op if absent.
 extern "C" void UE1FMVBlackout( void );   // defined in NSDLDrv/Src/FMVPlayer.cpp
-static void UE1AndroidPlayIntroFMVOnce( UEngine* Engine )
+static void KHGPlayIntroFMVOnce( UEngine* Engine )
 {
 	static UBOOL bPlayed = 0;
 	if( bPlayed )
@@ -3985,12 +3992,12 @@ static void UE1AndroidPlayIntroFMVOnce( UEngine* Engine )
 	Viewport->Exec( "playavi intro.avi N None N None N None N None N" );
 }
 
-// [KHG] UNREAL_ANDROID_MICROPROSE_SPLASH_V1: after the intro movie and before the menu, show the retail MicroProse launcher splash (from Khg.exe RT_BITMAP id=102 in KHGSplashData.h) for ~2.5s via the FMV still path, recreating the Windows hWndSplash the SDL launcher lacks.
-#include "KHGSplashData.h"
+// [KHG] UNREAL_ANDROID_MICROPROSE_SPLASH_V1: after the intro movie and before the menu, show the retail MicroProse launcher splash for ~2.5s via the FMV still path, recreating the Windows hWndSplash the SDL launcher lacks.
+// The bitmap is read at runtime from RT_BITMAP 102 of the user's own Khg.exe in the System folder (see KHGSplash.h); no copy of it ships with the port. Skipped if Khg.exe is absent.
 extern "C" int  UE1FMVShowStill( const unsigned char* Bgra, int W, int H, double Seconds );
 extern "C" int  UE1FMVAdvance( void );
 extern "C" void UE1FMVClose( void );
-static void UE1AndroidShowMicroProseSplashOnce( UEngine* Engine )
+static void KHGShowMicroProseSplashOnce( UEngine* Engine )
 {
 	static UBOOL bShown = 0;
 	if( bShown )
@@ -4002,22 +4009,28 @@ static void UE1AndroidShowMicroProseSplashOnce( UEngine* Engine )
 	if( !Viewport || !Viewport->RenDev )
 		return;
 
-	// Expand the embedded 8-bit indexed splash to top-down BGRA (palette is already BGRA) once.
-	static unsigned char* SplashBGRA = NULL;
-	if( !SplashBGRA )
+	// Retail installs spell the launcher Khg.exe; try the common casings for case-sensitive file systems.
+	static const char* ExeNames[] = { "Khg.exe", "KHG.EXE", "khg.exe", "KHG.exe" };
+	unsigned char* SplashBGRA = NULL;
+	INT SplashW = 0, SplashH = 0;
+	for( INT i = 0; i < ARRAY_COUNT(ExeNames) && !SplashBGRA; ++i )
 	{
-		SplashBGRA = (unsigned char*)appMalloc( KHG_SPLASH_W * KHG_SPLASH_H * 4, "KHGSplash" );
-		for( INT i = 0; i < KHG_SPLASH_W * KHG_SPLASH_H; ++i )
+		char Path[1024];
+		appSprintf( Path, "%s%s", appBaseDir(), ExeNames[i] );
+		int W = 0, H = 0;
+		if( KHGLoadPEBitmapBGRA( Path, KHG_SPLASH_RESOURCE_ID, &SplashBGRA, &W, &H ) )
 		{
-			const unsigned char* P = &KHG_SPLASH_PAL[ (INT)KHG_SPLASH_IDX[i] * 4 ];
-			SplashBGRA[i*4+0] = P[0];   // B
-			SplashBGRA[i*4+1] = P[1];   // G
-			SplashBGRA[i*4+2] = P[2];   // R
-			SplashBGRA[i*4+3] = 255;
+			SplashW = W;
+			SplashH = H;
 		}
 	}
-	debugf( NAME_Log, "[KHG] MicroProse splash: showing after intro (%dx%d)", KHG_SPLASH_W, KHG_SPLASH_H );
-	if( UE1FMVShowStill( SplashBGRA, KHG_SPLASH_W, KHG_SPLASH_H, 2.5 ) )
+	if( !SplashBGRA )
+	{
+		debugf( NAME_Log, "[KHG] MicroProse splash: Khg.exe (RT_BITMAP %i) not found in %s, skipping", KHG_SPLASH_RESOURCE_ID, appBaseDir() );
+		return;
+	}
+	debugf( NAME_Log, "[KHG] MicroProse splash: showing after intro (%dx%d)", SplashW, SplashH );
+	if( UE1FMVShowStill( SplashBGRA, SplashW, SplashH, 2.5 ) )
 	{
 		while( UE1FMVAdvance() )
 		{
@@ -4026,8 +4039,8 @@ static void UE1AndroidShowMicroProseSplashOnce( UEngine* Engine )
 		}
 		UE1FMVClose();
 	}
+	free( SplashBGRA );
 }
-#endif
 
 //
 // Unreal's main message loop.  All windows in Unreal receive messages
@@ -4038,10 +4051,8 @@ void MainLoop( UEngine* Engine )
 	guard(MainLoop);
 
 	GIsRunning = 1;
-#if defined(PLATFORM_ANDROID)
-	UE1AndroidPlayIntroFMVOnce( Engine );   // [KHG] intro FMV before the menu (UNREAL_ANDROID_INTRO_FMV_V1)
-	UE1AndroidShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
-#endif
+	KHGPlayIntroFMVOnce( Engine );   // [KHG] intro FMV before the menu (UNREAL_ANDROID_INTRO_FMV_V1)
+	KHGShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
 	DOUBLE OldTime = appSeconds();
 	while( GIsRunning && !GIsRequestingExit )
 	{
@@ -4130,6 +4141,10 @@ int main( int argc, const char** argv )
 	// Do not call appBaseDir() here: SDL_GetBasePath() may be null on Android.
 #else
 	appChdir( appBaseDir() );
+#endif
+#ifdef PLATFORM_WIN32
+	// [KHG] Desktop build: create KHGWin.ini from the retail defaults before appInit() loads it.
+	KHGDesktopPrepareConfig( appBaseDir(), appPackage() );
 #endif
 
 	// Init log.

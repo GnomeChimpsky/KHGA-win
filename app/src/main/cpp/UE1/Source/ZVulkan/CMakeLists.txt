@@ -1,4 +1,4 @@
-# [KHG] Trimmed ZVulkan build for the Android/NDK KHG port.
+# [KHG] Trimmed ZVulkan build for the KHG port (Android/NDK and Windows desktop).
 # Source: dpjudas/UT99VulkanDrv ZVulkan. glslang/runtime-GLSL is EXCLUDED — we precompile shaders to
 # SPIR-V offline (see VulkanDrv/shaders). volk owns the Vulkan prototypes (dlopen loader); VMA routes
 # through volk's loaded pointers (VMA_STATIC_VULKAN_FUNCTIONS=1 + volk.h, set inside vk_mem_alloc.cpp).
@@ -29,13 +29,14 @@ target_include_directories(ZVulkan PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# VK_USE_PLATFORM_ANDROID_KHR: expose vkCreateAndroidSurfaceKHR in volk + android surface structs.
-# VK_NO_PROTOTYPES: volk supplies function pointers (no link-time libvulkan; loader is dlopen'd ->
-# graceful failure on driverless devices -> GLES fallback).
-target_compile_definitions(ZVulkan PUBLIC
-    VK_USE_PLATFORM_ANDROID_KHR
-    VK_NO_PROTOTYPES
-)
+# VK_NO_PROTOTYPES: volk supplies function pointers (no link-time loader; it is loaded at runtime ->
+# graceful failure on driverless devices).
+target_compile_definitions(ZVulkan PUBLIC VK_NO_PROTOTYPES)
 
-# volk dlopens libvulkan via libdl; android/log for diagnostics. Deliberately NO link to 'vulkan'.
-target_link_libraries(ZVulkan PUBLIC dl log android)
+if(ANDROID)
+    # VK_USE_PLATFORM_ANDROID_KHR: expose vkCreateAndroidSurfaceKHR in volk + android surface structs.
+    target_compile_definitions(ZVulkan PUBLIC VK_USE_PLATFORM_ANDROID_KHR)
+    # volk dlopens libvulkan via libdl; android/log for diagnostics. Deliberately NO link to 'vulkan'.
+    target_link_libraries(ZVulkan PUBLIC dl log android)
+endif()
+# Windows: vulkaninstance.h defines VK_USE_PLATFORM_WIN32_KHR itself and volk loads vulkan-1.dll.

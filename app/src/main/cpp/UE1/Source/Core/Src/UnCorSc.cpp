@@ -187,7 +187,15 @@ void UObject::execUndefined( FFrame& Stack, BYTE*& Result  )
 {
 	guardSlow(UObject::execUndefined);
 
-	Stack.ScriptWarn( 1, "Unknown code token %02X", Stack.Code[-1] );
+	// [KHG] Log each missing token/native the first time a script actually executes it, so the log lists every one hit at runtime.
+	static BYTE Reported[256] = { 0 };
+	const BYTE Token = Stack.Code[-1];
+	if( !Reported[Token] )
+	{
+		Reported[Token] = 1;
+		debugf( NAME_Warning, "[KHG] MissingNative: code token %02X executed in %s", (INT)Token, Stack.Node ? Stack.Node->GetPathName() : "None" );
+	}
+	Stack.ScriptWarn( 1, "Unknown code token %02X", Token );
 
 	unguardexecSlow;
 }

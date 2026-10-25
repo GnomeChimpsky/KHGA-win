@@ -13,7 +13,9 @@
 =============================================================================*/
 
 #include <SDL.h>
+#ifdef PLATFORM_ANDROID
 #include <android/log.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 
@@ -28,7 +30,11 @@ extern "C" {
 
 #include "FMVPlayer.h"
 
+#ifdef PLATFORM_ANDROID
 #define FMV_ERR(...) __android_log_print( ANDROID_LOG_ERROR, "KHG_FMV", __VA_ARGS__ )   // keep real failures
+#else
+#define FMV_ERR(...) SDL_LogError( SDL_LOG_CATEGORY_APPLICATION, "KHG_FMV: " __VA_ARGS__ )
+#endif
 
 #define ARRAY_COUNT_FMV 48   // decoded-video frame-queue capacity (must match FMVState::vq[] size)
 

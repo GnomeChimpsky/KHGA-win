@@ -23,7 +23,6 @@
 #include <array>
 
 class CachedTexture;
-struct ANativeWindow;   // android/native_window.h (included in the .cpp)
 
 class DLL_EXPORT UVulkanRenderDevice : public URenderDevice
 {
@@ -53,7 +52,7 @@ class DLL_EXPORT UVulkanRenderDevice : public URenderDevice
 
 	// --- Device + managers (the UT99 architecture) ---
 	std::shared_ptr<VulkanInstance>          Instance;   // [KHG] kept alive (Android surface)
-	std::shared_ptr<VulkanSurface>           Surface;    // [KHG] Android surface
+	std::shared_ptr<VulkanSurface>           Surface;    // [KHG] platform surface
 	std::shared_ptr<VulkanSurface>           RetiredSurface; // [KHG] holds the pre-resume surface alive until the old swapchain built on it is destroyed (avoids freeing a VkSurface still referenced by a live VkSwapchainKHR)
 	std::shared_ptr<VulkanDevice>            Device;
 
@@ -113,16 +112,16 @@ class DLL_EXPORT UVulkanRenderDevice : public URenderDevice
 	// likewise base members, set in the ctor.
 
 private:
-	// --- Android surface lifecycle (preserved from the lean device) ---
-	UBOOL BringUpVulkan();             // instance + Android surface + device + managers
-	UBOOL RecreateAndroidSurface();    // sleep/resume: rebuild VkSurface from the current ANativeWindow
+	// --- Surface lifecycle (Android sleep/resume; native window from PlatformSurface.h) ---
+	UBOOL BringUpVulkan();             // instance + platform surface + device + managers
+	UBOOL RecreatePlatformSurface();   // sleep/resume: rebuild VkSurface from the current native window
 	void  RecreateSwapChainForResume();// resume: force the CommandBufferManager swapchain onto the new surface
-	ANativeWindow* GetCurrentNativeWindow();
+	void* GetCurrentNativeWindow();
 	void  ShutdownVulkan();
 
 	bool           Initialized = false;   // device + managers up
 	void*          WindowHandle = nullptr;// SDL_Window* backing the surface
-	ANativeWindow* BoundWindow  = nullptr;// the ANativeWindow our current VkSurface was built from
+	void*          BoundWindow  = nullptr;// the native window (ANativeWindow*/HWND) our current VkSurface was built from
 
 	// --- Scene projection (219 has no SetSceneNode): recompute per Frame from FSceneNode ---
 	void  UpdateSceneNode( FSceneNode* Frame );

@@ -8,7 +8,7 @@
 
 	Two-way merge: the rendering (Init managers, Lock/Unlock scene pass, DrawComplexSurface/Gouraud/Tile,
 	bindless batch, present) is UT99's; the surface/instance/device bring-up and the sleep/resume guard
-	are KHG's Android pieces (vkCreateAndroidSurfaceKHR from the SDL ANativeWindow).
+	are KHG's pieces (platform surface from the SDL native window, see PlatformSurface.h).
 =============================================================================*/
 
 #include "Precomp.h"
@@ -19,10 +19,8 @@
 #include <cstring>    // memcpy
 #include <stdexcept>
 
-// [KHG] Surface via vkCreateAndroidSurfaceKHR (not SDL_Vulkan_*): SDL doesn't treat this port's window as a Vulkan window, so build the surface straight from the ANativeWindow.
 #include "SDL2/SDL.h"
-#include "SDL2/SDL_syswm.h"
-#include <android/native_window.h>
+#include "PlatformSurface.h"   // [KHG] native window + VkSurfaceKHR per platform
 
 // IMPLEMENT_CLASS + CurrentFrameIndex live in VulkanDrv.cpp.
 
@@ -96,41 +94,33 @@ void VulkanError( const char* text )
 	Android surface lifecycle.
 -----------------------------------------------------------------------------*/
 
-// [KHG] The ANativeWindow backing the SDL window; NULL while backgrounded (no SurfaceView surface), exactly when we must not touch Vulkan presentation.
-ANativeWindow* UVulkanRenderDevice::GetCurrentNativeWindow()
+// [KHG] The native window backing the SDL window; on Android NULL while backgrounded (no SurfaceView surface), exactly when we must not touch Vulkan presentation.
+void* UVulkanRenderDevice::GetCurrentNativeWindow()
 {
 	SDL_Window* win = (SDL_Window*)WindowHandle;
 	if( !win )
 		win = Viewport ? (SDL_Window*)Viewport->GetWindow() : NULL;
-	if( !win )
-		return NULL;
-	SDL_SysWMinfo wm; SDL_VERSION( &wm.version );
-	if( !SDL_GetWindowWMInfo( win, &wm ) )
-		return NULL;
-	return wm.info.android.window;
+	return KHGVkGetNativeWindow( win );
 }
 
-// [KHG] Sleep/resume: a new ANativeWindow on resume invalidates the old VkSurface; rebuild the surface and point Device->Surface at it (swapchain Create reads it). Returns 0 if still backgrounded so the caller skips the frame.
-UBOOL UVulkanRenderDevice::RecreateAndroidSurface()
+// [KHG] Sleep/resume: a new native window on resume invalidates the old VkSurface; rebuild the surface and point Device->Surface at it (swapchain Create reads it). Returns 0 if still backgrounded so the caller skips the frame.
+UBOOL UVulkanRenderDevice::RecreatePlatformSurface()
 {
-	guard(UVulkanRenderDevice::RecreateAndroidSurface);
+	guard(UVulkanRenderDevice::RecreatePlatformSurface);
 	if( !Instance || !Device )
 		return 0;
 
-	ANativeWindow* awin = GetCurrentNativeWindow();
+	void* awin = GetCurrentNativeWindow();
 	if( !awin )
 		return 0;
 
 	vkDeviceWaitIdle( Device->device );
 
-	VkAndroidSurfaceCreateInfoKHR sci = {};
-	sci.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-	sci.window = awin;
-	VkSurfaceKHR surfaceHandle = VK_NULL_HANDLE;
-	VkResult sr = vkCreateAndroidSurfaceKHR( Instance->Instance, &sci, NULL, &surfaceHandle );
+	VkResult sr = VK_SUCCESS;
+	VkSurfaceKHR surfaceHandle = KHGVkCreatePlatformSurface( Instance->Instance, awin, &sr );
 	if( sr != VK_SUCCESS )
 	{
-		debugf( NAME_Warning, "VulkanDrv: resume vkCreateAndroidSurfaceKHR failed: %d", (INT)sr );
+		debugf( NAME_Warning, "VulkanDrv: resume surface creation failed: %d", (INT)sr );
 		return 0;
 	}
 
@@ -182,7 +172,16 @@ static void KHGBoot( const char* Fmt, ... )
 	debugf( NAME_Log, "[KHGBoot] %s", Buf );
 }
 #else
-static void KHGBoot( const char*, ... ) {}
+#include <stdarg.h>
+#include <stdio.h>
+static void KHGBoot( const char* Fmt, ... )
+{
+	char Buf[1200];
+	va_list ap; va_start( ap, Fmt );
+	vsnprintf( Buf, sizeof(Buf), Fmt, ap );
+	va_end( ap );
+	debugf( NAME_Log, "[KHGBoot] %s", Buf );
+}
 #endif
 
 // [KHG safe-mode] Some older mobile drivers (certain Mali DDKs) SIGSEGV *inside* bindless
@@ -235,14 +234,14 @@ UBOOL UVulkanRenderDevice::BringUpVulkan()
 	}
 	WindowHandle = win;
 
-	// Instance with the Android surface extensions; ZVulkan's VulkanInstance ctor runs volk init so vkCreateAndroidSurfaceKHR is live afterwards.
+	// Instance with the platform surface extensions; ZVulkan's VulkanInstance ctor runs volk init so the platform surface call is live afterwards.
 	VulkanInstanceBuilder ib;
 	// [KHG compat] Try 1.2 first so descriptor indexing exposed through Vulkan 1.2 CORE (rather than the
 	// VK_EXT_descriptor_indexing extension string) is visible; fall back to 1.1 then 1.0. A 1.0/1.1-only
 	// device that has no descriptor indexing at all is caught cleanly by the supportsBindless check below.
 	ib.ApiVersionsToTry( { VK_API_VERSION_1_2, VK_API_VERSION_1_1, VK_API_VERSION_1_0 } );
 	ib.RequireExtension( VK_KHR_SURFACE_EXTENSION_NAME );
-	ib.RequireExtension( VK_KHR_ANDROID_SURFACE_EXTENSION_NAME );
+	ib.RequireExtension( KHGVkPlatformSurfaceExtension() );
 	ib.OptionalExtension( VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME ); // HDR colorspace query (Hdr=0)
 	if( VkDebug )
 		ib.DebugLayer( true );
@@ -251,31 +250,22 @@ UBOOL UVulkanRenderDevice::BringUpVulkan()
 	KHGBoot( "step 1: VkInstance OK" );
 
 	// Pull the native window from SDL and make the surface ourselves.
-	SDL_SysWMinfo wm; SDL_VERSION( &wm.version );
-	if( !SDL_GetWindowWMInfo( win, &wm ) )
-	{
-		debugf( NAME_Warning, "VulkanDrv: SDL_GetWindowWMInfo failed: %s", SDL_GetError() );
-		return 0;
-	}
-	ANativeWindow* awin = wm.info.android.window;
+	void* awin = KHGVkGetNativeWindow( win );
 	if( !awin )
 	{
-		debugf( NAME_Warning, "VulkanDrv: no ANativeWindow" );
+		debugf( NAME_Warning, "VulkanDrv: no native window: %s", SDL_GetError() );
 		return 0;
 	}
-	debugf( NAME_Log, "VulkanDrv: ANativeWindow=%p %dx%d", (void*)awin,
-		ANativeWindow_getWidth( awin ), ANativeWindow_getHeight( awin ) );
-	KHGBoot( "step 2: ANativeWindow %dx%d, creating VkAndroidSurfaceKHR",
-		ANativeWindow_getWidth( awin ), ANativeWindow_getHeight( awin ) );
+	int nativeW = 0, nativeH = 0;
+	KHGVkGetNativeWindowSize( awin, &nativeW, &nativeH );
+	debugf( NAME_Log, "VulkanDrv: native window=%p %dx%d", awin, nativeW, nativeH );
+	KHGBoot( "step 2: native window %dx%d, creating %s surface", nativeW, nativeH, KHGVkPlatformSurfaceExtension() );
 
-	VkAndroidSurfaceCreateInfoKHR sci = {};
-	sci.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-	sci.window = awin;
-	VkSurfaceKHR surfaceHandle = VK_NULL_HANDLE;
-	VkResult sr = vkCreateAndroidSurfaceKHR( Instance->Instance, &sci, NULL, &surfaceHandle );
+	VkResult sr = VK_SUCCESS;
+	VkSurfaceKHR surfaceHandle = KHGVkCreatePlatformSurface( Instance->Instance, awin, &sr );
 	if( sr != VK_SUCCESS )
 	{
-		debugf( NAME_Warning, "VulkanDrv: vkCreateAndroidSurfaceKHR failed: %d", (INT)sr );
+		debugf( NAME_Warning, "VulkanDrv: surface creation failed: %d", (INT)sr );
 		return 0;
 	}
 	Surface = std::make_shared<VulkanSurface>( Instance, surfaceHandle );
@@ -578,12 +568,12 @@ void UVulkanRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane S
 		return;
 
 	// [KHG] Android sleep/resume: no native window means backgrounded, so skip the frame (IsLocked stays false); on a new window, rebuild the surface and swapchain before rendering.
-	ANativeWindow* awin = GetCurrentNativeWindow();
+	void* awin = GetCurrentNativeWindow();
 	if( !awin )
 		return;
 	if( awin != BoundWindow )
 	{
-		if( !RecreateAndroidSurface() )
+		if( !RecreatePlatformSurface() )
 			return;
 		RecreateSwapChainForResume();
 	}

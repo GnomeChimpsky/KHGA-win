@@ -879,7 +879,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, char* Err
 //
 // Draw a global view.
 //
-#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] FMV player (NSDLDrv/FMVPlayer.cpp) on Android and the desktop build
 // [KHG] FMV compositing hooks, implemented in NSDLDrv/FMVPlayer.cpp; resolved at the final libUnreal link (no CMake dependency between the Engine and NSDLDrv static modules).
 extern "C" int  UE1FMVIsActive( void );
 extern "C" void UE1FMVDrawActiveFrame( void );
@@ -1005,7 +1005,7 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 	Viewport->Actor->eventPreRender( Viewport->Canvas );
 	if( Frame->X>0 && Frame->Y>0 )
 		Render->DrawWorld( Frame );
-#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] FMV player (NSDLDrv/FMVPlayer.cpp) on Android and the desktop build
 	// [KHG] FMV (playavi) present: while ANY clip is active, present it ON TOP of the world AND HUD/menu with a black backdrop. The KHG menu keeps drawing during the blocking playavi loop, so presenting under it let the menu composite over the briefing; drawing on top after PostRender guarantees the movie is what the player sees.
 	const UBOOL bFMVActive = UE1FMVIsActive();
 #endif
@@ -1014,7 +1014,7 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 	if( Viewport->Console )
 		Viewport->Console->PostRender( Frame );
 	Render->PostRender( Frame );
-#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] FMV player (NSDLDrv/FMVPlayer.cpp) on Android and the desktop build
 	if( bFMVActive )
 		UE1FMVPresentFrame( Viewport, Frame, /*bBlackBackdrop=*/1 );
 #endif

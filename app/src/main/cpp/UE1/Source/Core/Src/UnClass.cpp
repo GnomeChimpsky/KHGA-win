@@ -1546,6 +1546,9 @@ void UFunction::Bind()
 			check(iIntrinsic<EX_Max);
 			check(GIntrinsics[iIntrinsic]!=NULL);
 			Func = GIntrinsics[iIntrinsic];
+			// [KHG] Report numbered natives this engine doesn't implement (build-219 additions). They bind to the execUndefined stub, which only warns if the script actually calls them.
+			if( Func == &UObject::execUndefined )
+				debugf( NAME_Warning, "[KHG] MissingNative: intrinsic %i '%s' has no native implementation; using execUndefined stub", (INT)iIntrinsic, GetPathName() );
 		}
 		else
 		{
@@ -1559,7 +1562,7 @@ void UFunction::Bind()
 				*(void**)&Func = *Ptr;
 			else
 			{
-				debugf( NAME_Warning, "[KHG] Missing native function '%s' (%s); using execUndefined stub", Proc, GetPathName() );
+				debugf( NAME_Warning, "[KHG] MissingNative: function '%s' (%s) has no native implementation; using execUndefined stub", Proc, GetPathName() );
 				Func = &UObject::execUndefined;
 			}
 		}
