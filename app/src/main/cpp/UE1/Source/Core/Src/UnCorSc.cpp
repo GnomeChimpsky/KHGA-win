@@ -239,6 +239,121 @@ void UObject::execDefaultVariable( FFrame& Stack, BYTE*& Result )
 }
 AUTOREGISTER_INTRINSIC( UObject, EX_DefaultVariable, execDefaultVariable );
 
+//
+// [KHG] Names the member of a skipped "None.Member" expression for the Accessed None log line, so a warning can
+// be traced to the script variable without disassembling the package. Code points at the member expression.
+//
+static UObject* KhgPeekCodeObject( BYTE* Code )
+{
+#if PLATFORM_64BIT
+	return GObj.GetIndexedObject( *(INT*)Code );
+#else
+	return *(UObject**)Code;
+#endif
+}
+static void KhgLogNoneContext( BYTE* Code, UProperty* ContextProp, FFrame& Stack )
+{
+	guard(KhgLogNoneContext);
+	char Member[256] = "?";
+	switch( Code[0] )
+	{
+		case EX_LocalVariable:
+		case EX_InstanceVariable:
+		case EX_DefaultVariable:
+		case EX_FinalFunction:
+			if( UObject* Obj = KhgPeekCodeObject(Code+1) )
+				appStrncpy( Member, Obj->GetName(), ARRAY_COUNT(Member) );
+			break;
+		case EX_BoolVariable:
+			if( Code[1]==EX_InstanceVariable || Code[1]==EX_LocalVariable || Code[1]==EX_DefaultVariable )
+				if( UObject* Obj = KhgPeekCodeObject(Code+2) )
+					appStrncpy( Member, Obj->GetName(), ARRAY_COUNT(Member) );
+			break;
+		case EX_VirtualFunction:
+		case EX_GlobalFunction:
+			appStrncpy( Member, *(*(FName*)(Code+1)), ARRAY_COUNT(Member) );
+			break;
+		case EX_ArrayElement:
+			appStrcpy( Member, "array element" );
+			break;
+	}
+	debugf( NAME_ScriptWarning, "[KHG] None context (last property %s) accessing %s in %s",
+		ContextProp ? ContextProp->GetName() : "?", Member, Stack.Node ? Stack.Node->GetFullName() : "?" );
+	unguard;
+}
+
+#if PLATFORM_64BIT
+//
+// [KHG] Size to zero when a context expression ("A.B" / "class'X'.default.B") is skipped because its context
+// is None. The skip header carries the member's size as baked by the stock 32-bit UCC, so an object, class or
+// other pointer-width result is listed as 4 bytes. Zeroing only those leaves the high half of the 8-byte result
+// as whatever the (uninitialised) destination held, so "X = None.B" stores a wild 0xXXXX00000000 into X and
+// "None.B != None" is true on 64-bit while 32-bit gets a clean None. Peek the skipped member expression and use
+// its real 64-bit size. Code points at the member expression, ContextProp is the property the context value came
+// from (GProperty after evaluating it). Falls back to the baked size whenever the member can't be resolved.
+//
+static INT KhgFunctionResultSize( UFunction* Function, INT BakedSize )
+{
+	UProperty* Return = Function ? Function->GetReturnProperty() : NULL;
+	return Return ? Return->GetElementSize() : BakedSize;
+}
+static INT KhgSkippedContextSize( BYTE* Code, UProperty* ContextProp, UBOOL bClassContext, INT BakedSize )
+{
+	guard(KhgSkippedContextSize);
+	switch( Code[0] )
+	{
+		case EX_LocalVariable:
+		case EX_InstanceVariable:
+		case EX_DefaultVariable:
+		{
+			UProperty* P = Cast<UProperty>( GObj.GetIndexedObject(*(INT*)(Code+1)) );
+			return P ? P->GetElementSize() : BakedSize;
+		}
+		case EX_FinalFunction:
+			return KhgFunctionResultSize( Cast<UFunction>(GObj.GetIndexedObject(*(INT*)(Code+1))), BakedSize );
+		case EX_VirtualFunction:
+		case EX_GlobalFunction:
+		{
+			FName Name = *(FName*)(Code+1);
+
+			// The context variable's declared class tells us which function the call binds to.
+			UClass* Class = NULL;
+			UClassProperty* ClassProp = Cast<UClassProperty>( ContextProp );
+			UObjectProperty* ObjectProp = Cast<UObjectProperty>( ContextProp );
+			if( bClassContext && ClassProp )
+				Class = ClassProp->MetaClass;
+			else if( !bClassContext && ObjectProp && !ClassProp )
+				Class = ObjectProp->PropertyClass;
+			if( Class )
+				if( UFunction* Function = Class->GetDefaultObject()->FindFunction(Name, Code[0]==EX_GlobalFunction) )
+					return KhgFunctionResultSize( Function, BakedSize );
+
+			// Otherwise (context was a function result etc.) take any function of that name; overrides share
+			// the signature. Cache by code address, which is stable once a package is loaded.
+			static struct { BYTE* Code; INT Size; } Cache[256];
+			INT Slot = (INT)(((UPTRINT)Code >> 2) & 255);
+			if( Cache[Slot].Code == Code )
+				return Cache[Slot].Size;
+			INT Size = BakedSize;
+			for( TObjectIterator<UFunction> It; It; ++It )
+				if( It->GetFName() == Name )
+				{
+					Size = KhgFunctionResultSize( *It, BakedSize );
+					break;
+				}
+			Cache[Slot].Code = Code;
+			Cache[Slot].Size = Size;
+			return Size;
+		}
+		default:
+			// Bool members (EX_BoolVariable) are a DWORD on both ABIs. Array elements and anything else keep the
+			// baked size, as before.
+			return BakedSize;
+	}
+	unguard;
+}
+#endif
+
 void UObject::execClassContext( FFrame& Stack, BYTE*& Result )
 {
 	guard(UObject::execClassContext);
@@ -258,7 +373,10 @@ void UObject::execClassContext( FFrame& Stack, BYTE*& Result )
 	{
 		Stack.ScriptWarn( 0, "Accessed null class context" );
 		INT wSkip = Stack.ReadWord();
-		BYTE bSize = *Stack.Code++;
+		INT bSize = *Stack.Code++;
+#if PLATFORM_64BIT
+		bSize = KhgSkippedContextSize( Stack.Code, GProperty, 1, bSize );
+#endif
 		Stack.Code += wSkip;
 		if( Result )
 			appMemset( Result, 0, bSize );
@@ -533,6 +651,7 @@ void UObject::execContext( FFrame& Stack, BYTE*& Result )
 	// Get actor variable.
 	BYTE Buffer[MAX_CONST_SIZE], *Addr=Buffer;
 	Stack.Step( this, Addr );
+	UProperty* ContextProp = GProperty;
 
 	// Execute or skip the following expression in the actor's context.
 	UObject* NewContext = *(UObject**)Addr;
@@ -563,7 +682,11 @@ void UObject::execContext( FFrame& Stack, BYTE*& Result )
 				Stack.Node ? Stack.Node->GetFullName() : "?" );
 		Stack.ScriptWarn( 0, "Accessed None" );
 		INT wSkip = Stack.ReadWord();
-		BYTE bSize = *Stack.Code++;
+		INT bSize = *Stack.Code++;
+		KhgLogNoneContext( Stack.Code, ContextProp, Stack );
+#if PLATFORM_64BIT
+		bSize = KhgSkippedContextSize( Stack.Code, ContextProp, 0, bSize );
+#endif
 		Stack.Code += wSkip;
 		if( Result )
 			appMemset( Result, 0, bSize );
