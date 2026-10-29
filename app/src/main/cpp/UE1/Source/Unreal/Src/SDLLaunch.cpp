@@ -4096,6 +4096,46 @@ static void KHGCloseStartupSplash()
 }
 #endif
 
+#ifdef PLATFORM_WIN32
+// [KHG] Desktop: KHGWin.exe -khgmaptest loads every map in ..\Maps in turn, runs each for a few seconds and quits,
+// so one run shows whether each mission loads and which missing natives ([KHG] MissingNative) it hits. Each map's
+// log lines follow its "[KHG] MapTest" line. Used for the M2 x86/x64 comparison; normal play never takes this path.
+static void KHGRunMapTest( UEngine* Engine )
+{
+	guard(KHGRunMapTest);
+	UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
+	if( !GameEngine )
+		return;
+	TArray<FString> Maps = appFindFiles( "..\\Maps\\*.unr" );
+	debugf( NAME_Log, "[KHG] MapTest: %i maps", Maps.Num() );
+	INT Loaded = 0;
+	for( INT i = 0; i < Maps.Num() && !GIsRequestingExit; i++ )
+	{
+		if( appStricmp( *Maps(i), "Entry.unr" )==0 )
+			continue;
+		char URL[256], Error[256] = "";
+		appSprintf( URL, "..\\Maps\\%s", *Maps(i) );
+		debugf( NAME_Log, "[KHG] MapTest %i/%i: %s", i+1, Maps.Num(), *Maps(i) );
+		if( !GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+		{
+			debugf( NAME_Log, "[KHG] MapTest: %s FAILED: %s", *Maps(i), Error );
+			continue;
+		}
+		Loaded++;
+		DOUBLE Start = appSeconds(), OldTime = Start;
+		while( !GIsRequestingExit && appSeconds() - Start < 5.0 )
+		{
+			DOUBLE NewTime = appSeconds();
+			Engine->Tick( NewTime - OldTime );
+			OldTime = NewTime;
+			appSleep( 0.01 );
+		}
+	}
+	debugf( NAME_Log, "[KHG] MapTest: done, %i loaded", Loaded );
+	unguard;
+}
+#endif
+
 //
 // Unreal's main message loop.  All windows in Unreal receive messages
 // somewhere below this function on the stack.
@@ -4113,6 +4153,12 @@ void MainLoop( UEngine* Engine )
 	GetConfigBool( "KHGWin", "PlayIntroAtStartup", PlayIntroAtStartup );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
+	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) )
+	{
+		KHGRunMapTest( Engine );
+		GIsRunning = 0;
+		return;
+	}
 #else
 	KHGPlayIntroFMVOnce( Engine );   // [KHG] intro FMV before the menu (UNREAL_ANDROID_INTRO_FMV_V1)
 	KHGShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
