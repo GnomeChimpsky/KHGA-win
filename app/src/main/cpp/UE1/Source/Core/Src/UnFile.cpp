@@ -825,11 +825,14 @@ CORE_API TArray<FString> appFindFiles( const char* Spec )
 
 #ifdef PLATFORM_WIN32
 	_finddata_t Found;
-	long hFind = _findfirst( Spec, &Found );
+	// [KHG] _findfirst returns an intptr_t handle. Storing it in a long (32 bits on Win64) truncated it, so
+	// _findnext crashed on the 64-bit build. Also close the search handle.
+	intptr_t hFind = _findfirst( Spec, &Found );
 	if( hFind != -1 )
 	{
 		do new(Result)FString(Found.name);
 		while( _findnext( hFind, &Found )!=-1 );
+		_findclose( hFind );
 	}
 #else
 	DIR *Dirp;
