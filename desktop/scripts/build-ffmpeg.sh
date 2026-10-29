@@ -35,4 +35,5 @@ cd "$BUILD"
 
 make -j"$(nproc)"
 make install
+cp "$SRC/COPYING.LGPLv2.1" "$PREFIX/"   # packaged with the DLLs (build-windows.sh)
 rm -rf "$BUILD"
