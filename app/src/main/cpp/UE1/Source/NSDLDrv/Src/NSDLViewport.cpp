@@ -3935,6 +3935,26 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 	UE1AndroidCleanPatchKeyboardMenuNextWeaponV86( this );
 #endif
 
+	// [KHG] GetSplash/SetSplash: the retail WinDrv console commands KlingonHUD uses to show its title splash and legal
+	// screen once per session, on the first visit to the KLINGON title map. GetSplash answers "true" once SetSplash has
+	// run; the flag lives on the client like retail, so it lasts for the whole session. Without them the HUD never
+	// sees "false", so the title splash and legal screen were never shown.
+	{
+		static UBOOL GKHGSplashShown = 0;
+		const char* SplashCmd = Cmd;
+		if( ParseCommand( &SplashCmd, "SetSplash" ) )
+		{
+			GKHGSplashShown = 1;
+			return 1;
+		}
+		if( ParseCommand( &SplashCmd, "GetSplash" ) )
+		{
+			if( Out )
+				Out->Log( GKHGSplashShown ? "true" : "false" );
+			return 1;
+		}
+	}
+
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] playavi handler: Android and the desktop build
 	// [KHG] PlayAVI: replaces the original Window.dll VFW handler for KHG's ConsoleCommand("playavi <f1> <flag1> ... <f5> <flag5>"); parse up to 5 file/flag pairs ("None"=empty) and play each System-dir clip via the FFmpeg FMV player (blocking, game loop paused then resumed). Y/C flags drive the decorated console frame (a separate buildup.avi/breakdn.avi the content composites into): Y => buildup->content->breakdn, C => content composited onto the current frame (continuation), N/T/None => plain full-screen. See FMV_COMM_FRAME_RE.md.
 	{
