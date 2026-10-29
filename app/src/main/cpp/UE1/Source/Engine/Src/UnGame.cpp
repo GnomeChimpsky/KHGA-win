@@ -138,11 +138,14 @@ void UGameEngine::Init()
 	FURL URL( &DefaultURL, AutoURL, TRAVEL_Partial );
 	if( !URL.Valid )
 		appErrorf( LocalizeError("InvalidUrl"), AutoURL );
-	UBOOL Success = Browse( FURL(&LastURL,AutoURL,TRAVEL_Partial), Error256 );
+	// [KHG] Browse the URL built on DefaultURL so the first map gets the [DefaultPlayer] options (Name, Class,
+	// Skin, Team...), as retail build 219 does (its log shows them on the first Browse). Basing it on the empty
+	// LastURL dropped them, so the player spawned with no skin set.
+	UBOOL Success = Browse( URL, Error256 );
 
 	// If waiting for a network connection, go into the starting level.
 	if( !Success && !Error256[0] && appStricmp( AutoURL, *FURL::DefaultLocalMap )!=0 )
-		Success = Browse( FURL(&LastURL,*FURL::DefaultLocalMap,TRAVEL_Partial), Error256 );
+		Success = Browse( FURL(&DefaultURL,*FURL::DefaultLocalMap,TRAVEL_Partial), Error256 );
 
 	// Handle failure.
 	if( !Success )
