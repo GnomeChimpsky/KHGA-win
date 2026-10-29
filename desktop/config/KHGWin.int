@@ -1,0 +1,3 @@
+; Launcher strings for KHGWin.exe (the engine looks them up by the exe name).
+[Errors]
+Critical=Critical Error

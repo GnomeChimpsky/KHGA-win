@@ -368,7 +368,10 @@ UBOOL UNSDLClient::Exec( const char* Cmd, FOutputDevice* Out )
 		Result = "Native 1280x720 1024x768 "; // UE1_ANDROID_RESOLUTION_MENU_NATIVE_FIXED_CLEAN_V83
 #else
 		GetDisplayResolutions();
-		for( INT i=0; i<DisplayResolutions.Num(); ++i )
+		// [KHG] KlingonMenuVideo keeps the list in a 16-entry array (retail drivers reported fewer
+		// modes); modern displays report more, which overflowed it. List only the 16 largest.
+		const INT MaxMenuResolutions = 16;
+		for( INT i=Max(0, DisplayResolutions.Num()-MaxMenuResolutions); i<DisplayResolutions.Num(); ++i )
 		{
 			const SDL_Rect& Mode = DisplayResolutions(i);
 			Result.Appendf( "%ix%i ", Mode.w, Mode.h );

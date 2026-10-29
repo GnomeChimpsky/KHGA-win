@@ -23,6 +23,7 @@ set(SRC_FILES
   "UploadManager.cpp"
   "SceneTextures.cpp"
   "FileResource.cpp"
+  "PlatformSurface.cpp"   # [KHG] native window + VkSurfaceKHR per platform (Android / Windows)
   "mat.cpp"
   "halffloat.cpp"
 )

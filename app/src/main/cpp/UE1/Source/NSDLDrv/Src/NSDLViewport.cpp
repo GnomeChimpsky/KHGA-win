@@ -8,9 +8,7 @@
 
 #include "NSDLDrv.h"
 #include "UnRender.h"
-#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 #include "FMVPlayer.h"   // [KHG] Indeo5/IV50 FMV playback for the playavi handler
-#endif
 
 IMPLEMENT_CLASS( UNSDLViewport );
 
@@ -3361,6 +3359,7 @@ UBOOL UNSDLViewport::TickInput()
 	}
 #endif
 
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 	// UNREAL_ANDROID_TOUCH_OVERLAY_V125:
 	// Consume relative swipe-look after the physical right-stick path (Java v131 only sends right-half look outside menus; native consumes every queued swipe).
 	{
@@ -3393,6 +3392,7 @@ UBOOL UNSDLViewport::TickInput()
 				CauseInputEvent( IK_MouseY, IST_Axis, DY );
 		}
 	}
+#endif
 
 	InputUpdateTime = CurTime;
 
@@ -3933,7 +3933,9 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 	UE1AndroidRefreshRuntimeMenuPatches();
 	UE1AndroidCleanScrubFriendlyAliasDuplicatesV92( Input );
 	UE1AndroidCleanPatchKeyboardMenuNextWeaponV86( this );
+#endif
 
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] playavi handler: Android and the desktop build
 	// [KHG] PlayAVI: replaces the original Window.dll VFW handler for KHG's ConsoleCommand("playavi <f1> <flag1> ... <f5> <flag5>"); parse up to 5 file/flag pairs ("None"=empty) and play each System-dir clip via the FFmpeg FMV player (blocking, game loop paused then resumed). Y/C flags drive the decorated console frame (a separate buildup.avi/breakdn.avi the content composites into): Y => buildup->content->breakdn, C => content composited onto the current frame (continuation), N/T/None => plain full-screen. See FMV_COMM_FRAME_RE.md.
 	{
 		const char* AviCmd = Cmd;
@@ -3984,7 +3986,9 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 			return 1;
 		}
 	}
+#endif
 
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 	const char* AndroidKeyCmd = Cmd;
 	if( ParseCommand( &AndroidKeyCmd, "KEYNAME" ) )
 	{

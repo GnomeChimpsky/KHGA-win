@@ -14,6 +14,12 @@ UT99 Vulkan driver.
 No game data is included. You need your own retail copy of *Klingon Honor Guard* (original
 CD + patches, or an existing PC install) and you supply its data files yourself.
 
+## Windows desktop port (work in progress)
+
+This fork adds a native Windows 10/11 build (32-bit and 64-bit) that shares the engine tree with
+the Android build. It installs next to a retail install as `KHGWin.exe` and never modifies the
+retail files. See [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md).
+
 ## Features
 
 - **Vulkan renderer** — a from-scratch `VulkanDrv` render device draws the 3D BSP world with

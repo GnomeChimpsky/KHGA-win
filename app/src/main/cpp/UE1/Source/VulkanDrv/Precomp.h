@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <cstdint>
+#include <stdexcept>
 
 // UE1 engine render-device interface + scene structs (same header the GLES driver uses).
 #include "RenderPrivate.h"

@@ -76,9 +76,13 @@ endif()
 message(STATUS "Target arch: ${TARGET_ARCH}")
 message(STATUS "64-bit: ${TARGET_IS_64BIT}")
 
+option(UE1_NATIVE_64BIT "Build a native 64-bit binary on 64-bit targets instead of forcing -m32" OFF)
+
 if(TARGET_IS_64BIT)
   if(ANDROID)
     message(STATUS "Android arm64/x86_64 enabled; UE1 pointer-size audit remains experimental.")
+  elseif(UE1_NATIVE_64BIT)
+    message(STATUS "Native 64-bit desktop build enabled.")
   elseif(TARGET_IS_X86 AND NOT MSVC)
     message(STATUS "Building x86 binary with x86_64 compiler")
     set(TARGET_IS_64BIT FALSE)

@@ -727,13 +727,12 @@ class ULinkerLoad : public ULinker, public FArchiveFileLoad
 						}
 					}
 				}
-#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
+				// [KHG] Klingons.u imports Editor.TransBuffer, whose native class lives in the editor module. Neither the Android nor the desktop build includes the editor, so skip that import when the game runs (retail Khg.exe shipped Editor.dll and resolved it).
 				if( !GIsEditor && Pkg && appStricmp( Pkg->GetName(), "Editor" ) == 0 && appStricmp( *Import.ObjectName, "TransBuffer" ) == 0 )
 				{
-					debugf( NAME_Warning, "Ignoring editor-only import Editor.TransBuffer while loading runtime map on Android" );
+					debugf( NAME_Warning, "Ignoring editor-only import Editor.TransBuffer while loading game packages (no editor in this build)" );
 					SafeReplace = 1;
 				}
-#endif
 				if( !Import.Object && !SafeReplace )
 				{
 					FString S = "";
