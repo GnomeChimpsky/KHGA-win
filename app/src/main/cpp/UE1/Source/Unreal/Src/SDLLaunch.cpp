@@ -3995,6 +3995,26 @@ static void KHGPlayIntroFMVOnce( UEngine* Engine )
 // [KHG] UNREAL_ANDROID_MICROPROSE_SPLASH_V1: after the intro movie and before the menu, show the retail MicroProse launcher splash for ~2.5s via the FMV still path, recreating the Windows hWndSplash the SDL launcher lacks.
 // The bitmap is read at runtime from RT_BITMAP 102 of the user's own Khg.exe in the System folder (see KHGSplash.h); no copy of it ships with the port. Skipped if Khg.exe is absent.
 extern "C" int  UE1FMVShowStill( const unsigned char* Bgra, int W, int H, double Seconds );
+
+// Loads the MicroProse splash (RT_BITMAP 102) from the user's Khg.exe as top-down BGRA; the caller frees it.
+static UBOOL KHGLoadRetailSplash( unsigned char** OutBGRA, INT* OutW, INT* OutH )
+{
+	// Retail installs spell the launcher Khg.exe; try the common casings for case-sensitive file systems.
+	static const char* ExeNames[] = { "Khg.exe", "KHG.EXE", "khg.exe", "KHG.exe" };
+	for( INT i = 0; i < ARRAY_COUNT(ExeNames); ++i )
+	{
+		char Path[1024];
+		appSprintf( Path, "%s%s", appBaseDir(), ExeNames[i] );
+		int W = 0, H = 0;
+		if( KHGLoadPEBitmapBGRA( Path, KHG_SPLASH_RESOURCE_ID, OutBGRA, &W, &H ) )
+		{
+			*OutW = W;
+			*OutH = H;
+			return 1;
+		}
+	}
+	return 0;
+}
 extern "C" int  UE1FMVAdvance( void );
 extern "C" void UE1FMVClose( void );
 static void KHGShowMicroProseSplashOnce( UEngine* Engine )
@@ -4009,22 +4029,9 @@ static void KHGShowMicroProseSplashOnce( UEngine* Engine )
 	if( !Viewport || !Viewport->RenDev )
 		return;
 
-	// Retail installs spell the launcher Khg.exe; try the common casings for case-sensitive file systems.
-	static const char* ExeNames[] = { "Khg.exe", "KHG.EXE", "khg.exe", "KHG.exe" };
 	unsigned char* SplashBGRA = NULL;
 	INT SplashW = 0, SplashH = 0;
-	for( INT i = 0; i < ARRAY_COUNT(ExeNames) && !SplashBGRA; ++i )
-	{
-		char Path[1024];
-		appSprintf( Path, "%s%s", appBaseDir(), ExeNames[i] );
-		int W = 0, H = 0;
-		if( KHGLoadPEBitmapBGRA( Path, KHG_SPLASH_RESOURCE_ID, &SplashBGRA, &W, &H ) )
-		{
-			SplashW = W;
-			SplashH = H;
-		}
-	}
-	if( !SplashBGRA )
+	if( !KHGLoadRetailSplash( &SplashBGRA, &SplashW, &SplashH ) )
 	{
 		debugf( NAME_Log, "[KHG] MicroProse splash: Khg.exe (RT_BITMAP %i) not found in %s, skipping", KHG_SPLASH_RESOURCE_ID, appBaseDir() );
 		return;
@@ -4042,6 +4049,53 @@ static void KHGShowMicroProseSplashOnce( UEngine* Engine )
 	free( SplashBGRA );
 }
 
+#ifdef PLATFORM_WIN32
+// [KHG] Desktop: like the retail launcher's hWndSplash, show the MicroProse splash in its own centred, borderless window
+// while the engine starts up, and close it once the engine (and the game window) is up. Skipped if Khg.exe is absent.
+static SDL_Window*   GKHGSplashWindow   = NULL;
+static SDL_Renderer* GKHGSplashRenderer = NULL;
+static SDL_Texture*  GKHGSplashTexture  = NULL;
+static void KHGOpenStartupSplash()
+{
+	unsigned char* BGRA = NULL;
+	INT W = 0, H = 0;
+	if( !KHGLoadRetailSplash( &BGRA, &W, &H ) )
+		return;
+	if( SDL_InitSubSystem( SDL_INIT_VIDEO ) == 0 )
+	{
+		GKHGSplashWindow = SDL_CreateWindow( "Klingon Honor Guard", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+			SDL_WINDOW_BORDERLESS | SDL_WINDOW_SKIP_TASKBAR );
+		if( GKHGSplashWindow )
+			GKHGSplashRenderer = SDL_CreateRenderer( GKHGSplashWindow, -1, SDL_RENDERER_SOFTWARE );
+		if( GKHGSplashRenderer )
+			GKHGSplashTexture = SDL_CreateTexture( GKHGSplashRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, W, H );
+		if( GKHGSplashTexture )
+		{
+			SDL_UpdateTexture( GKHGSplashTexture, NULL, BGRA, W * 4 );
+			SDL_RenderCopy( GKHGSplashRenderer, GKHGSplashTexture, NULL, NULL );
+			SDL_RenderPresent( GKHGSplashRenderer );
+			SDL_PumpEvents();
+		}
+	}
+	free( BGRA );
+}
+static void KHGCloseStartupSplash()
+{
+	if( !GKHGSplashWindow )
+		return;
+	debugf( NAME_Log, "[KHG] MicroProse splash: shown during startup" );
+	if( GKHGSplashTexture )
+		SDL_DestroyTexture( GKHGSplashTexture );
+	if( GKHGSplashRenderer )
+		SDL_DestroyRenderer( GKHGSplashRenderer );
+	SDL_DestroyWindow( GKHGSplashWindow );
+	GKHGSplashTexture  = NULL;
+	GKHGSplashRenderer = NULL;
+	GKHGSplashWindow   = NULL;
+	SDL_QuitSubSystem( SDL_INIT_VIDEO );
+}
+#endif
+
 //
 // Unreal's main message loop.  All windows in Unreal receive messages
 // somewhere below this function on the stack.
@@ -4051,8 +4105,18 @@ void MainLoop( UEngine* Engine )
 	guard(MainLoop);
 
 	GIsRunning = 1;
+#ifdef PLATFORM_WIN32
+	// [KHG] Desktop: retail order. The MicroProse splash was already shown while the engine loaded (KHGOpenStartupSplash)
+	// and retail plays no movie at startup: INTRO.AVI is only offered in the video log menu. [KHGWin]
+	// PlayIntroAtStartup=True in KHGWin.ini brings back the Android port's intro before the menu.
+	UBOOL PlayIntroAtStartup = 0;
+	GetConfigBool( "KHGWin", "PlayIntroAtStartup", PlayIntroAtStartup );
+	if( PlayIntroAtStartup )
+		KHGPlayIntroFMVOnce( Engine );
+#else
 	KHGPlayIntroFMVOnce( Engine );   // [KHG] intro FMV before the menu (UNREAL_ANDROID_INTRO_FMV_V1)
 	KHGShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
+#endif
 	DOUBLE OldTime = appSeconds();
 	while( GIsRunning && !GIsRequestingExit )
 	{
@@ -4162,7 +4226,15 @@ int main( int argc, const char** argv )
 #ifdef PLATFORM_ANDROID
 			__android_log_print( ANDROID_LOG_INFO, "UE1Android", "InitEngine begin" );
 #endif
+#ifdef PLATFORM_WIN32
+			KHGOpenStartupSplash();   // [KHG] retail splash window while the engine loads
+#endif
 			UEngine* Engine = InitEngine();
+#ifdef PLATFORM_WIN32
+			KHGCloseStartupSplash();
+			if( Engine && Engine->Client && Engine->Client->Viewports.Num() && Engine->Client->Viewports(0)->GetWindow() )
+				SDL_RaiseWindow( (SDL_Window*)Engine->Client->Viewports(0)->GetWindow() );
+#endif
 #ifdef PLATFORM_ANDROID
 			__android_log_print( ANDROID_LOG_INFO, "UE1Android", "InitEngine end: Engine=%p GIsRequestingExit=%d GIsCriticalError=%d", Engine, GIsRequestingExit, GIsCriticalError );
 #endif

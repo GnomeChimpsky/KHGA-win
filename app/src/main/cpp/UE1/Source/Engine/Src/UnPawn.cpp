@@ -263,10 +263,19 @@ void APlayerPawn::execConsoleCommandResult( FFrame& Stack, BYTE*& Result )
 	P_GET_STRING(Command);
 	P_FINISH;
 
-	// [KHG] De-CD: the menus probe for the gameplay CD via the "prsq" console query expecting "mpgameplay" (else "Insert the Gameplay CD-ROM"); the original Windows copy-protection answering it doesn't exist in this port, so answer affirmatively to run disc-free.
+	// [KHG] De-CD: the menus probe for a game CD via the "prsq" console query (retail WinDrv scans the drives). They
+	// expect "mpgameplay" for the gameplay CD (else "Insert the Gameplay CD-ROM"), except the video log's intro movie,
+	// which lives on the install CD and expects "mpinstall". The copy protection doesn't exist in this port, so answer
+	// with whichever CD the caller is asking for: the install CD while the log book has the intro queued.
 	if( appStricmp( Command, "prsq" )==0 )
 	{
-		appStrcpy( (char*)Result, "mpgameplay" );
+		const char* Answer = "mpgameplay";
+		UObjectProperty* LogBookProp = ::FindField<UObjectProperty>( GetClass(), "LogBook" );
+		UObject* LogBook = LogBookProp ? *(UObject**)((BYTE*)this + LogBookProp->Offset) : NULL;
+		UStringProperty* AVIProp = LogBook ? ::FindField<UStringProperty>( LogBook->GetClass(), "AVIToPlay" ) : NULL;
+		if( AVIProp && appStricmp( (char*)LogBook + AVIProp->Offset, "intro.avi N" )==0 )
+			Answer = "mpinstall";
+		appStrcpy( (char*)Result, Answer );
 	}
 	else
 	{
