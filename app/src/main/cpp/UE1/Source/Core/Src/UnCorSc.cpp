@@ -239,6 +239,49 @@ void UObject::execDefaultVariable( FFrame& Stack, BYTE*& Result )
 }
 AUTOREGISTER_INTRINSIC( UObject, EX_DefaultVariable, execDefaultVariable );
 
+//
+// [KHG] Names the member of a skipped "None.Member" expression for the Accessed None log line, so a warning can
+// be traced to the script variable without disassembling the package. Code points at the member expression.
+//
+static UObject* KhgPeekCodeObject( BYTE* Code )
+{
+#if PLATFORM_64BIT
+	return GObj.GetIndexedObject( *(INT*)Code );
+#else
+	return *(UObject**)Code;
+#endif
+}
+static void KhgLogNoneContext( BYTE* Code, UProperty* ContextProp, FFrame& Stack )
+{
+	guard(KhgLogNoneContext);
+	char Member[256] = "?";
+	switch( Code[0] )
+	{
+		case EX_LocalVariable:
+		case EX_InstanceVariable:
+		case EX_DefaultVariable:
+		case EX_FinalFunction:
+			if( UObject* Obj = KhgPeekCodeObject(Code+1) )
+				appStrncpy( Member, Obj->GetName(), ARRAY_COUNT(Member) );
+			break;
+		case EX_BoolVariable:
+			if( Code[1]==EX_InstanceVariable || Code[1]==EX_LocalVariable || Code[1]==EX_DefaultVariable )
+				if( UObject* Obj = KhgPeekCodeObject(Code+2) )
+					appStrncpy( Member, Obj->GetName(), ARRAY_COUNT(Member) );
+			break;
+		case EX_VirtualFunction:
+		case EX_GlobalFunction:
+			appStrncpy( Member, *(*(FName*)(Code+1)), ARRAY_COUNT(Member) );
+			break;
+		case EX_ArrayElement:
+			appStrcpy( Member, "array element" );
+			break;
+	}
+	debugf( NAME_ScriptWarning, "[KHG] None context (last property %s) accessing %s in %s",
+		ContextProp ? ContextProp->GetName() : "?", Member, Stack.Node ? Stack.Node->GetFullName() : "?" );
+	unguard;
+}
+
 #if PLATFORM_64BIT
 //
 // [KHG] Size to zero when a context expression ("A.B" / "class'X'.default.B") is skipped because its context
@@ -640,6 +683,7 @@ void UObject::execContext( FFrame& Stack, BYTE*& Result )
 		Stack.ScriptWarn( 0, "Accessed None" );
 		INT wSkip = Stack.ReadWord();
 		INT bSize = *Stack.Code++;
+		KhgLogNoneContext( Stack.Code, ContextProp, Stack );
 #if PLATFORM_64BIT
 		bSize = KhgSkippedContextSize( Stack.Code, ContextProp, 0, bSize );
 #endif
