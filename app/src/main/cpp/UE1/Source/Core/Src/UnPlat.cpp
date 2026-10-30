@@ -1821,10 +1821,12 @@ void appInit()
 
 #if defined(PLATFORM_WIN32)
 	// Get memory.
-	MEMORYSTATUS M;
-	GlobalMemoryStatus(&M);
-	GPhysicalMemory=M.dwTotalPhys;
-	debugf( NAME_Init, "Memory total: Phys=%iK Pagef=%iK Virt=%iK", M.dwTotalPhys/1024, M.dwTotalPageFile/1024, M.dwTotalVirtual/1024 );
+	// [KHG] MEMORYSTATUSEX: the 32-bit MEMORYSTATUS fields and %i overflow above 2 GB (logged Virt=-128K on Win64).
+	MEMORYSTATUSEX M;
+	M.dwLength = sizeof(M);
+	GlobalMemoryStatusEx(&M);
+	GPhysicalMemory = M.ullTotalPhys > 0xFFFFFFFFull ? 0xFFFFFFFFu : (DWORD)M.ullTotalPhys;
+	debugf( NAME_Init, "Memory total: Phys=%uM Pagef=%uM Virt=%uM", (DWORD)(M.ullTotalPhys>>20), (DWORD)(M.ullTotalPageFile>>20), (DWORD)(M.ullTotalVirtual>>20) );
 
 	// Working set.
 	SIZE_T WsMin=0, WsMax=0;
