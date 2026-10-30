@@ -10,6 +10,8 @@
 
 #include "Engine.h"
 #include "KHGSplash.h"   // [KHG] retail splash read from the user's Khg.exe
+#include "UnRender.h"   // [KHG] URenderDevice::ReadPixels for -khgshots
+#include <math.h>
 #ifdef PLATFORM_WIN32
 #include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
 #endif
@@ -4240,6 +4242,372 @@ static void KHGRunMapTest( UEngine* Engine )
 }
 #endif
 
+#ifdef PLATFORM_WIN32
+// [KHG] Desktop: KHGWin.exe -khgshots=<dir> takes screenshots of fixed camera views in every map (M3 rendering
+// parity), so they can be compared with the same views taken in the retail Khg.exe (builds\tools\RetailShots.bat).
+//   -khgviews=<dir>   folder of view files, one <map>.txt per map (default <shots dir>\..\Views). A missing file
+//                     is written first, with views chosen from the map: the player start in four directions, and
+//                     a nearby path node looking at coronas, volumetric lights, translucent, modulated, masked,
+//                     mirror and sky surfaces, plus a few spread through the level.
+//   -khgmap=X.unr     one map only; -khgticks=N game ticks after loading (default 120)
+//   -khgres=WxH       render size (default 1024x768, the retail Glide setting); not saved to KHGWin.ini
+// Each view is a block of console commands under a "view <name>" line, run with the same "set" commands the
+// retail game understands, then one frame is captured to <shots dir>\<map>_<name>.bmp.
+static FString KHGStr( const char* Fmt, ... )
+{
+	char Buf[2048];
+	va_list Args;
+	va_start( Args, Fmt );
+	vsnprintf( Buf, sizeof(Buf), Fmt, Args );
+	va_end( Args );
+	return FString( Buf );
+}
+struct FKHGShotView
+{
+	char Name[32];   // plain data: TArray copies its elements without constructing them
+	FVector Eye;
+	INT Pitch, Yaw;
+};
+static INT KHGRotUnits( DOUBLE Radians )
+{
+	return appRound( Radians * 32768.0 / PI ) & 65535;
+}
+static void KHGAddShotView( TArray<FKHGShotView>& Views, const char* Name, FVector Eye, FVector Target )
+{
+	FKHGShotView V;
+	appStrncpy( V.Name, Name, ARRAY_COUNT(V.Name) );
+	V.Eye = Eye;
+	FVector D = Target - Eye;
+	V.Yaw = KHGRotUnits( ::atan2( (DOUBLE)D.Y, (DOUBLE)D.X ) );
+	V.Pitch = KHGRotUnits( ::atan2( (DOUBLE)D.Z, appSqrt( D.X*D.X + D.Y*D.Y ) ) );
+	Views.AddItem( V );
+}
+// The path node that sees Target best: in clear view, in front of the surface if Normal is set, nearest to 400 units.
+static UBOOL KHGFindShotEye( ULevel* Level, TArray<FVector>& Spots, FVector Target, const FVector* Normal, FVector& OutEye )
+{
+	FLOAT Best = 1e9;
+	for( INT i = 0; i < Spots.Num(); i++ )
+	{
+		FVector Eye = Spots(i);
+		FVector D = Target - Eye;
+		FLOAT Dist = D.Size();
+		if( Dist < 64.0f || Dist > 1500.0f )
+			continue;
+		if( Normal && ( (Eye - Target) | *Normal ) < 0.3f * Dist )
+			continue;
+		FCheckResult Hit;
+		if( !Level->SingleLineCheck( Hit, NULL, Target, Eye, TRACE_VisBlocking ) )
+			continue;
+		FLOAT Score = Abs( Dist - 400.0f );
+		if( Score < Best )
+		{
+			Best = Score;
+			OutEye = Eye;
+		}
+	}
+	return Best < 1e9;
+}
+static void KHGPlanShotViews( ULevel* Level, APlayerPawn* Player, TArray<FKHGShotView>& Views )
+{
+	const FLOAT EyeHeight = Player ? Player->BaseEyeHeight : 40.0f;
+	TArray<FVector> Spots;
+	APlayerStart* Start = NULL;
+	for( INT a = 0; a < Level->Num(); a++ )
+	{
+		ANavigationPoint* Nav = Cast<ANavigationPoint>( Level->Actors(a) );
+		if( !Nav )
+			continue;
+		Spots.AddItem( Nav->Location + FVector( 0, 0, EyeHeight ) );
+		if( !Start )
+			Start = Cast<APlayerStart>( Nav );
+	}
+	// The player start, looking ahead, right, back and left.
+	FVector StartEye = Start ? Start->Location + FVector( 0, 0, EyeHeight ) : Player ? Player->Location + FVector( 0, 0, EyeHeight ) : FVector( 0, 0, 0 );
+	INT StartYaw = Start ? Start->Rotation.Yaw : Player ? Player->Rotation.Yaw : 0;
+	for( INT d = 0; d < 4; d++ )
+	{
+		FKHGShotView V;
+		appSprintf( V.Name, "start%i", d );
+		V.Eye = StartEye;
+		V.Pitch = 0;
+		V.Yaw = ( StartYaw + d * 16384 ) & 65535;
+		Views.AddItem( V );
+	}
+	// Actor features.
+	INT Coronas = 0, Volumes = 0, Translucent = 0;
+	for( INT a = 0; a < Level->Num(); a++ )
+	{
+		AActor* A = Level->Actors(a);
+		if( !A || A->bDeleteMe || A == Player )
+			continue;
+		const char* Kind = NULL;
+		if( A->LightType != LT_None && A->bCorona && Coronas < 2 )
+			Kind = "corona";
+		else if( A->LightType != LT_None && A->VolumeRadius > 0 && Volumes < 2 )
+			Kind = "volume";
+		else if( !A->bHidden && A->DrawType != DT_None && A->Style == STY_Translucent && Translucent < 1 )
+			Kind = "transactor";
+		FVector Eye;
+		if( !Kind || !KHGFindShotEye( Level, Spots, A->Location, NULL, Eye ) )
+			continue;
+		INT& Count = Kind[0]=='c' ? Coronas : Kind[0]=='v' ? Volumes : Translucent;
+		KHGAddShotView( Views, *KHGStr( "%s%i", Kind, Count ), Eye, A->Location );
+		Count++;
+	}
+	// BSP surfaces with special drawing, the biggest polygon of each kind first.
+	struct { DWORD Flag; const char* Kind; INT Max; } Kinds[] =
+	{
+		{ PF_Translucent, "translucent", 2 }, { PF_Modulated, "modulated", 1 }, { PF_Masked, "masked", 1 },
+		{ PF_Mirrored, "mirror", 1 }, { PF_FakeBackdrop, "sky", 1 },
+	};
+	UModel* Model = Level->Model;
+	for( INT k = 0; k < ARRAY_COUNT(Kinds); k++ )
+	{
+		TArray<INT> Used;
+		for( INT n = 0; n < Kinds[k].Max; n++ )
+		{
+			INT BestNode = INDEX_NONE;
+			FLOAT BestArea = 0.0f;
+			FVector BestCenter( 0, 0, 0 ), BestNormal( 0, 0, 1 );
+			for( INT i = 0; i < Model->Nodes->Num(); i++ )
+			{
+				FBspNode& Node = Model->Nodes->Element(i);
+				if( Node.NumVertices < 3 || Node.iSurf == INDEX_NONE )
+					continue;
+				FBspSurf& Surf = Model->Surfs->Element(Node.iSurf);
+				INT UsedIndex;
+				if( !(Surf.PolyFlags & Kinds[k].Flag) || (Surf.PolyFlags & (PF_Invisible|PF_Portal)) || Used.FindItem( Node.iSurf, UsedIndex ) )
+					continue;
+				FVector Center( 0, 0, 0 );
+				FLOAT Area = 0.0f;
+				FVector P0 = Model->Points->Element( Model->Verts->Element(Node.iVertPool).pVertex );
+				for( INT v = 0; v < Node.NumVertices; v++ )
+				{
+					FVector P = Model->Points->Element( Model->Verts->Element(Node.iVertPool + v).pVertex );
+					Center += P;
+					if( v >= 2 )
+						Area += ( ( Model->Points->Element( Model->Verts->Element(Node.iVertPool + v - 1).pVertex ) - P0 ) ^ ( P - P0 ) ).Size() * 0.5f;
+				}
+				Center /= Node.NumVertices;
+				FVector Normal = Model->Vectors->Element( Surf.vNormal );
+				FVector Eye;
+				if( Area > BestArea && KHGFindShotEye( Level, Spots, Center + Normal * 2.0f, &Normal, Eye ) )
+				{
+					BestArea = Area;
+					BestNode = i;
+					BestCenter = Center;
+					BestNormal = Normal;
+				}
+			}
+			if( BestNode == INDEX_NONE )
+				break;
+			Used.AddItem( Model->Nodes->Element(BestNode).iSurf );
+			FVector Eye;
+			KHGFindShotEye( Level, Spots, BestCenter + BestNormal * 2.0f, &BestNormal, Eye );
+			KHGAddShotView( Views, *KHGStr( "%s%i", Kinds[k].Kind, n ), Eye, BestCenter );
+		}
+	}
+	// A few path nodes spread through the level, each looking the way with the most open space.
+	for( INT n = 1; n <= 3 && Spots.Num() > 4; n++ )
+	{
+		FVector Eye = Spots( Spots.Num() * n / 4 );
+		FLOAT BestDist = -1.0f;
+		INT BestYaw = 0;
+		for( INT d = 0; d < 8; d++ )
+		{
+			FLOAT Angle = d * PI / 4.0f;
+			FVector End = Eye + FVector( appCos( Angle ), appSin( Angle ), 0 ) * 4000.0f;
+			FCheckResult Hit;
+			FLOAT Dist = Level->SingleLineCheck( Hit, NULL, End, Eye, TRACE_VisBlocking ) ? 4000.0f : Hit.Time * 4000.0f;
+			if( Dist > BestDist )
+			{
+				BestDist = Dist;
+				BestYaw = d * 8192;
+			}
+		}
+		FKHGShotView V;
+		appSprintf( V.Name, "spread%i", n );
+		V.Eye = Eye;
+		V.Pitch = 0;
+		V.Yaw = BestYaw;
+		Views.AddItem( V );
+	}
+}
+static FString KHGShotViewCommands( const FKHGShotView& V, FLOAT EyeHeight )
+{
+	// The pawn's Location is its centre; the camera is EyeHeight above it.
+	return KHGStr(
+		"set LevelInfo bPlayersOnly True\r\n"
+		"set PlayerPawn Physics PHYS_None\r\n"
+		"set PlayerPawn Velocity (X=0.000000,Y=0.000000,Z=0.000000)\r\n"
+		"set PlayerPawn Acceleration (X=0.000000,Y=0.000000,Z=0.000000)\r\n"
+		"set PlayerPawn bBehindView False\r\n"
+		"set PlayerPawn ViewTarget None\r\n"
+		"set PlayerPawn Location (X=%f,Y=%f,Z=%f)\r\n"
+		"set PlayerPawn ViewRotation (Pitch=%i,Yaw=%i,Roll=0)\r\n",
+		V.Eye.X, V.Eye.Y, V.Eye.Z - EyeHeight, V.Pitch, V.Yaw );
+}
+static UBOOL KHGWriteShotBMP( const char* File, FColor* Buf, INT SizeX, INT SizeY )
+{
+	// The same 24-bit file the engine's SHOT command writes.
+	FILE* F = appFopen( File, "wb" );
+	if( !F )
+		return 0;
+	#pragma pack (push,1)
+	struct { _WORD bfType; DWORD bfSize; _WORD bfReserved1, bfReserved2; DWORD bfOffBits; } FH;
+	struct { DWORD biSize; INT biWidth, biHeight; _WORD biPlanes, biBitCount; DWORD biCompression, biSizeImage; INT biXPelsPerMeter, biYPelsPerMeter; DWORD biClrUsed, biClrImportant; } IH;
+	#pragma pack (pop)
+	FH.bfType = 'B' + 256*'M';
+	FH.bfSize = sizeof(FH) + sizeof(IH) + 3 * SizeX * SizeY;
+	FH.bfReserved1 = FH.bfReserved2 = 0;
+	FH.bfOffBits = sizeof(FH) + sizeof(IH);
+	appMemset( &IH, 0, sizeof(IH) );
+	IH.biSize = sizeof(IH);
+	IH.biWidth = SizeX;
+	IH.biHeight = SizeY;
+	IH.biPlanes = 1;
+	IH.biBitCount = 24;
+	IH.biSizeImage = SizeX * SizeY * 3;
+	appFwrite( &FH, sizeof(FH), 1, F );
+	appFwrite( &IH, sizeof(IH), 1, F );
+	for( INT i = SizeY-1; i >= 0; i-- )
+		for( INT j = 0; j < SizeX; j++ )
+			appFwrite( &Buf[i*SizeX+j], 3, 1, F );
+	appFclose( F );
+	return 1;
+}
+static void KHGMakeDirs( const char* Path )
+{
+	// Create each folder along the path, like mkdir -p.
+	char Dir[512];
+	appStrncpy( Dir, Path, ARRAY_COUNT(Dir) );
+	for( char* P = Dir; *P; P++ )
+		if( ( *P == '\\' || *P == '/' ) && P > Dir && P[-1] != ':' && P[-1] != '.' )
+		{
+			char C = *P;
+			*P = 0;
+			CreateDirectoryA( Dir, NULL );
+			*P = C;
+		}
+	CreateDirectoryA( Dir, NULL );
+}
+static void KHGRunShots( UEngine* Engine )
+{
+	guard(KHGRunShots);
+	UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
+	if( !GameEngine || !GameEngine->Client || !GameEngine->Client->Viewports.Num() )
+		return;
+	UViewport* Viewport = GameEngine->Client->Viewports(0);
+	char ShotDir[256] = "", ViewDir[256] = "", Only[256] = "";
+	Parse( appCmdLine(), "KHGSHOTS=", ShotDir, ARRAY_COUNT(ShotDir) );
+	if( !Parse( appCmdLine(), "KHGVIEWS=", ViewDir, ARRAY_COUNT(ViewDir) ) )
+		appSprintf( ViewDir, "%s\\..\\Views", ShotDir );
+	Parse( appCmdLine(), "KHGMAP=", Only, ARRAY_COUNT(Only) );
+	INT Ticks = 120;
+	Parse( appCmdLine(), "KHGTICKS=", Ticks );
+	KHGMakeDirs( ShotDir );
+	KHGMakeDirs( ViewDir );
+	// Render at the retail comparison size (Glide at 1024x768 by default), in whatever window mode is set.
+	char Res[64] = "1024x768", Cmd[128];
+	Parse( appCmdLine(), "KHGRES=", Res, ARRAY_COUNT(Res) );
+	appSprintf( Cmd, "SetRes %s nosave", Res );
+	Viewport->Exec( Cmd, GSystem );
+	Engine->Tick( 1.0 / 60.0 );
+	TArray<FString> Maps = appFindFiles( "..\\Maps\\*.unr" );
+	debugf( NAME_Log, "[KHG] Shots: %i maps, %ix%i, views in %s, shots in %s", Maps.Num(), Viewport->SizeX, Viewport->SizeY, ViewDir, ShotDir );
+	INT Taken = 0, Failed = 0;
+	for( INT i = 0; i < Maps.Num() && !GIsRequestingExit; i++ )
+	{
+		if( appStricmp( *Maps(i), "Entry.unr" )==0 || ( *Only && appStricmp( *Maps(i), Only )!=0 ) )
+			continue;
+		char MapName[256], URL[256], Error[256] = "";
+		appStrcpy( MapName, *Maps(i) );
+		if( appStrchr( MapName, '.' ) )
+			*appStrchr( MapName, '.' ) = 0;
+		appSprintf( URL, "..\\Maps\\%s", *Maps(i) );
+		srand( 1 );
+		if( !GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+		{
+			debugf( NAME_Log, "[KHG] Shots: %s FAILED to load: %s", MapName, Error );
+			Failed++;
+			continue;
+		}
+		for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
+			Engine->Tick( 1.0 / 60.0 );
+		Viewport = GameEngine->Client->Viewports(0);
+		APlayerPawn* Player = Viewport->Actor;
+		const FLOAT EyeHeight = Player ? Player->BaseEyeHeight : 40.0f;
+
+		// The views: read the map's view file, or plan the views and write it.
+		char ViewFile[512];
+		appSprintf( ViewFile, "%s\\%s.txt", ViewDir, MapName );
+		FString Text;
+		if( !appLoadFileToString( Text, ViewFile ) )
+		{
+			TArray<FKHGShotView> Views;
+			KHGPlanShotViews( GameEngine->GLevel, Player, Views );
+			Text = KHGStr( "; Screenshot views for %s.unr, written by KHGWin.exe -khgshots. Each \"view <name>\" line\r\n"
+				"; starts one screenshot; the console commands under it place the camera (also run by RetailShots in Khg.exe).\r\n", MapName );
+			for( INT v = 0; v < Views.Num(); v++ )
+							{
+				Text += KHGStr( "view %s\r\n", Views(v).Name );
+				Text += KHGShotViewCommands( Views(v), EyeHeight );
+			}
+			FILE* F = appFopen( ViewFile, "wb" );
+			if( F )
+			{
+				appFwrite( *Text, Text.Length(), 1, F );
+				appFclose( F );
+			}
+			else
+				debugf( NAME_Warning, "[KHG] Shots: could not write %s", ViewFile );
+			debugf( NAME_Log, "[KHG] Shots: %s planned %i views", MapName, Views.Num() );
+		}
+
+		// Run each view's commands, let a few frames render, capture.
+		const char* Data = *Text;
+		char Line[512], View[128] = "";
+		UBOOL More = 1;
+		while( More && !GIsRequestingExit )
+		{
+			More = ParseLine( &Data, Line, ARRAY_COUNT(Line) );
+			if( More && appStrnicmp( Line, "view ", 5 ) != 0 )
+			{
+				if( *View && Line[0] && Line[0] != ';' )
+					Viewport->Exec( Line, GSystem );
+				continue;
+			}
+			if( *View )
+			{
+				for( INT t = 0; t < 6; t++ )
+					Engine->Tick( 1.0 / 60.0 );
+				char File[512];
+				appSprintf( File, "%s\\%s_%s.bmp", ShotDir, MapName, View );
+				FMemMark Mark( GMem );
+				FColor* Buf = new( GMem, Viewport->SizeX * Viewport->SizeY )FColor;
+				Viewport->RenDev->ReadPixels( Buf );
+				if( KHGWriteShotBMP( File, Buf, Viewport->SizeX, Viewport->SizeY ) )
+				{
+					Taken++;
+					debugf( NAME_Log, "[KHG] Shots: %s_%s at (%.0f,%.0f,%.0f)", MapName, View,
+						Viewport->Actor->Location.X, Viewport->Actor->Location.Y, Viewport->Actor->Location.Z );
+				}
+				else
+				{
+					Failed++;
+					debugf( NAME_Warning, "[KHG] Shots: could not write %s", File );
+				}
+				Mark.Pop();
+			}
+			if( More )
+				appStrncpy( View, Line + 5, ARRAY_COUNT(View) );
+		}
+	}
+	debugf( NAME_Log, "[KHG] Shots: done, %i screenshots, %i failed", Taken, Failed );
+	unguard;
+}
+#endif
+
 //
 // Unreal's main message loop.  All windows in Unreal receive messages
 // somewhere below this function on the stack.
@@ -4258,6 +4626,12 @@ void MainLoop( UEngine* Engine )
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
 	char KhgMapArg[256];
+	if( Parse( appCmdLine(), "KHGSHOTS=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
+	{
+		KHGRunShots( Engine );
+		GIsRunning = 0;
+		return;
+	}
 	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" )
 	 || Parse( appCmdLine(), "KHGLOADSAVE=", KhgMapArg, ARRAY_COUNT(KhgMapArg) )
 	 || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )

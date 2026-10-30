@@ -50,6 +50,9 @@ class NSDLDRV_API UNSDLViewport : public UViewport
 
 	// UNSDLViewport interface.
 	void SetClientSize( INT NewX, INT NewY, UBOOL UpdateProfile );
+#ifndef PLATFORM_ANDROID
+	void KHGWindowedSize( INT& X, INT& Y );
+#endif
 	void EndFullscreen();
 	UBOOL TickInput(); // returns true if the viewport has requested death
 
@@ -105,6 +108,9 @@ class NSDLDRV_API UNSDLClient : public UClient, public FNotifyHook
 	// Configuration.
 	INT DefaultDisplay;
 	UBOOL StartupFullscreen;
+	UBOOL BorderlessFullscreen;   // [KHG] desktop: fullscreen as a borderless desktop-sized window instead of a display mode change
+	INT WindowedViewportX;        // [KHG] desktop: window size when not fullscreen (0 = ViewportX/Y, shrunk to fit the desktop)
+	INT WindowedViewportY;
 	UBOOL UseJoystick;
 	UBOOL InvertY;
 	UBOOL InvertV;

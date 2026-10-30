@@ -31,6 +31,29 @@ KHGWin.ini:
   [KHGWin]
   PlayIntroAtStartup=True
 
+Display
+-------
+Alt+Enter switches between a window and fullscreen. Settings in KHGWin.ini:
+
+  [NSDLDrv.NSDLClient]
+  StartupFullscreen=True     start fullscreen (False = in a window)
+  ViewportX=1024             fullscreen resolution; any size works, also
+  ViewportY=768              ones the in-game menu does not list
+  BorderlessFullscreen=False False = switch the display to that resolution,
+                             like the retail game; True = a borderless window
+                             over the desktop, the picture scaled to fit with
+                             its shape kept (black bars if needed)
+  WindowedViewportX=0        window size; 0 = the fullscreen resolution,
+  WindowedViewportY=0        shrunk to fit the desktop. The window can be
+                             resized by dragging and remembers its size.
+
+  [VulkanDrv.VulkanRenderDevice]
+  UseVSync=True              wait for the monitor refresh like the retail
+                             Glide driver; False = no frame cap
+
+In the console, "setres 1600x1200" changes the resolution and "vsync on" or
+"vsync off" changes vsync.
+
 Original game files are never modified. Khg.exe is only read, to show the
 MicroProse splash screen.
 

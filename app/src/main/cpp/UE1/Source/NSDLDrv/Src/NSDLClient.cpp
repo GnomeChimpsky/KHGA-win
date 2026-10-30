@@ -37,6 +37,9 @@ void UNSDLClient::InternalClassInitializer( UClass* Class )
 	{
 		new(Class, "DefaultDisplay",    RF_Public)UIntProperty(CPP_PROPERTY(DefaultDisplay),     "Display",  CPF_Config );
 		new(Class, "StartupFullscreen", RF_Public)UBoolProperty(CPP_PROPERTY(StartupFullscreen), "Display",  CPF_Config );
+		new(Class, "BorderlessFullscreen", RF_Public)UBoolProperty(CPP_PROPERTY(BorderlessFullscreen), "Display", CPF_Config );
+		new(Class, "WindowedViewportX", RF_Public)UIntProperty(CPP_PROPERTY(WindowedViewportX),  "Display",  CPF_Config );
+		new(Class, "WindowedViewportY", RF_Public)UIntProperty(CPP_PROPERTY(WindowedViewportY),  "Display",  CPF_Config );
 		new(Class, "UseJoystick",       RF_Public)UBoolProperty(CPP_PROPERTY(UseJoystick),       "Joystick", CPF_Config );
 		new(Class, "DeadZoneXYZ",       RF_Public)UFloatProperty(CPP_PROPERTY(DeadZoneXYZ),      "Joystick", CPF_Config );
 		new(Class, "DeadZoneRUV",       RF_Public)UFloatProperty(CPP_PROPERTY(DeadZoneRUV),      "Joystick", CPF_Config );
@@ -67,6 +70,8 @@ UNSDLClient::UNSDLClient()
 	guard(UNSDLClient::UWindowsClient);
 	Controller = NULL;
 	DefaultDisplay = 0;
+	BorderlessFullscreen = 0;   // [KHG] retail switches the display mode (exclusive fullscreen)
+	WindowedViewportX = WindowedViewportY = 0;
 	UseJoystick = true;
 	ScaleXYZ = 100.f;
 	ScaleRUV = 100.f;
@@ -104,6 +109,10 @@ void UNSDLClient::Init( UEngine* InEngine )
 	SDL_SetHint( SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1" );
 	SDL_SetHint( SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1" );
 	SDL_SetHint( SDL_HINT_RENDER_DRIVER, "opengles2" );
+#endif
+#ifdef _WIN32
+	// [KHG] Desktop: window sizes and resolutions are real pixels, not scaled by the Windows display scale setting.
+	SDL_SetHint( SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2" );
 #endif
 
 	if ( SDL_Init( SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER ) < 0 )

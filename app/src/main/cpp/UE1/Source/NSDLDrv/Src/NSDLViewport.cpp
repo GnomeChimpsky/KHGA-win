@@ -2000,6 +2000,13 @@ void UNSDLViewport::OpenWindow( void* InParentWindow, UBOOL Temporary, INT NewX,
 		// SDL_WINDOW_FULLSCREEN here can make Android allocate a rotated buffer
 		// (for example 972x1920 transform=7) while the surface is 1920x1080.
 		Flags |= SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE;
+#else
+		// [KHG] Desktop: the window can be resized; the game renders at the window's size. A fullscreen start
+		// (StartupFullscreen) switches to ViewportX/Y right after the render device is up (TryRenderDevice).
+		if( !(Flags & SDL_WINDOW_BORDERLESS) )
+			Flags |= SDL_WINDOW_RESIZABLE;
+		if( !hWnd )
+			KHGWindowedSize( NewX, NewY );
 #endif
 
 		// Set OpenGL attributes if needed.
@@ -2371,13 +2378,56 @@ void UNSDLViewport::SetClientSize( INT NewX, INT NewY, UBOOL UpdateProfile )
 	// Optionally save this size in the profile.
 	if( UpdateProfile )
 	{
-		Client->ViewportX = NewX;
-		Client->ViewportY = NewY;
+#ifndef PLATFORM_ANDROID
+		// [KHG] Desktop: ViewportX/Y is the fullscreen resolution; a window keeps its own size.
+		if( Client->FullscreenViewport != this )
+		{
+			Client->WindowedViewportX = NewX;
+			Client->WindowedViewportY = NewY;
+		}
+		else
+#endif
+		{
+			Client->ViewportX = NewX;
+			Client->ViewportY = NewY;
+		}
 		Client->SaveConfig();
 	}
 
 	unguard;
 }
+
+#ifndef PLATFORM_ANDROID
+//
+// [KHG] Desktop: the window size to use when not fullscreen. WindowedViewportX/Y if set, otherwise the size
+// passed in, shrunk (keeping its aspect ratio) so the window with its frame fits the desktop.
+//
+void UNSDLViewport::KHGWindowedSize( INT& X, INT& Y )
+{
+	if( Client->WindowedViewportX > 0 && Client->WindowedViewportY > 0 )
+	{
+		X = Client->WindowedViewportX;
+		Y = Client->WindowedViewportY;
+		return;
+	}
+	if( X <= 0 || Y <= 0 )
+	{
+		X = 1024;
+		Y = 768;
+	}
+	SDL_Rect Usable;
+	const INT Display = hWnd ? SDL_GetWindowDisplayIndex( hWnd ) : Client->DefaultDisplay;
+	if( SDL_GetDisplayUsableBounds( Display, &Usable ) == 0 && Usable.w > 0 && Usable.h > 0 )
+	{
+		const FLOAT Scale = Min( 1.0f, Min( (Usable.w - 32) / (FLOAT)X, (Usable.h - 64) / (FLOAT)Y ) );
+		if( Scale < 1.0f )
+		{
+			X = Max( 320, (INT)(X * Scale) );
+			Y = Max( 240, (INT)(Y * Scale) );
+		}
+	}
+}
+#endif
 
 //
 // Return the viewport's window.
@@ -2396,6 +2446,22 @@ void UNSDLViewport::MakeFullscreen( INT NewX, INT NewY, UBOOL UpdateProfile )
 {
 	guard(UNSDLViewport::MakeFullscreen);
 
+#ifndef PLATFORM_ANDROID
+	if( Client->FullscreenViewport==this && Client->BorderlessFullscreen )
+	{
+		// [KHG] Borderless: the window already covers the desktop; only the render size changes (the present
+		// pass scales it to the screen, keeping its aspect ratio).
+		SizeX = NewX;
+		SizeY = NewY;
+		if( UpdateProfile )
+		{
+			Client->ViewportX = NewX;
+			Client->ViewportY = NewY;
+			Client->SaveConfig();
+		}
+		return;
+	}
+#endif
 	// If someone else is fullscreen, stop them.
 	if( Client->FullscreenViewport )
 		Client->EndFullscreen();
@@ -2414,7 +2480,28 @@ void UNSDLViewport::MakeFullscreen( INT NewX, INT NewY, UBOOL UpdateProfile )
 	SetClientSize( NewX, NewY, false );
 #else
 	SetClientSize( NewX, NewY, false );
-	SDL_SetWindowFullscreen( hWnd, SDL_WINDOW_FULLSCREEN );
+	if( Client->BorderlessFullscreen )
+	{
+		// [KHG] Borderless: a desktop-sized window, no display mode change; the game still renders at NewX x NewY.
+		SDL_SetWindowFullscreen( hWnd, SDL_WINDOW_FULLSCREEN_DESKTOP );
+		debugf( NAME_Log, "[KHG] Fullscreen: borderless, rendering %ix%i", NewX, NewY );
+	}
+	else
+	{
+		// [KHG] Exclusive: switch the display to the mode closest to NewX x NewY at the desktop refresh rate.
+		SDL_DisplayMode Want, Mode;
+		appMemset( &Want, 0, sizeof(Want) );
+		Want.w = NewX;
+		Want.h = NewY;
+		if( SDL_GetClosestDisplayMode( SDL_GetWindowDisplayIndex( hWnd ), &Want, &Mode ) )
+		{
+			SDL_SetWindowDisplayMode( hWnd, &Mode );
+			debugf( NAME_Log, "[KHG] Fullscreen: exclusive %ix%i %i Hz, rendering %ix%i", Mode.w, Mode.h, Mode.refresh_rate, NewX, NewY );
+		}
+		else
+			debugf( NAME_Log, "[KHG] Fullscreen: no display mode near %ix%i (%s)", NewX, NewY, SDL_GetError() );
+		SDL_SetWindowFullscreen( hWnd, SDL_WINDOW_FULLSCREEN );
+	}
 #endif
 
 	if( UpdateProfile )
@@ -2445,7 +2532,10 @@ void UNSDLViewport::EndFullscreen()
 	SetClientSize( NewX, NewY, false );
 #else
 	SDL_SetWindowFullscreen( hWnd, 0 );
-	SetClientSize( SavedX, SavedY, false );
+	INT NewX = SavedX, NewY = SavedY;
+	KHGWindowedSize( NewX, NewY );
+	SetClientSize( NewX, NewY, false );
+	SDL_SetWindowPosition( hWnd, SDL_WINDOWPOS_CENTERED_DISPLAY( DisplayIndex ), SDL_WINDOWPOS_CENTERED_DISPLAY( DisplayIndex ) );
 #endif
 
 	unguard;
@@ -2969,6 +3059,22 @@ UBOOL UNSDLViewport::TickInput()
 					JoyAxis[Ev.caxis.axis] = NewValue;
 				}
 				break;
+#ifndef PLATFORM_ANDROID
+			case SDL_WINDOWEVENT:
+				// [KHG] Desktop: the user resized the window; render at its new size and remember it.
+				if( Ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && hWnd && Ev.window.windowID == SDL_GetWindowID( hWnd )
+				 && !(SDL_GetWindowFlags( hWnd ) & SDL_WINDOW_FULLSCREEN) && Client->FullscreenViewport != this
+				 && Ev.window.data1 > 0 && Ev.window.data2 > 0 && ( Ev.window.data1 != SizeX || Ev.window.data2 != SizeY ) )
+				{
+					SizeX = Ev.window.data1;
+					SizeY = Ev.window.data2;
+					Client->WindowedViewportX = SizeX;
+					Client->WindowedViewportY = SizeY;
+					Client->SaveConfig();
+					Repaint();
+				}
+				break;
+#endif
 			case SDL_MOUSEMOTION:
 				if( !Client->FullscreenViewport && !SDL_GetRelativeMouseMode() )
 				{
@@ -4232,6 +4338,8 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 		// Toggle fullscreen.
 		if( Client->FullscreenViewport )
 			Client->EndFullscreen();
+		else if( RenDev && !(Actor->ShowFlags & SHOW_ChildWindow) )
+			MakeFullscreen( Client->ViewportX, Client->ViewportY, 0 );   // [KHG] keep the render device, only the window changes
 		else if( !(Actor->ShowFlags & SHOW_ChildWindow) )
 			Client->TryRenderDevice( this, "ini:Engine.Engine.GameRenderDevice", 1 );
 		return 1;
@@ -4291,12 +4399,13 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 		}
 #else
 		INT X=appAtoi(Cmd), Y=appAtoi(appStrchr(Cmd,'x') ? appStrchr(Cmd,'x')+1 : appStrchr(Cmd,'X') ? appStrchr(Cmd,'X')+1 : "");
+		const UBOOL Save = appStrfind( Cmd, "nosave" ) == NULL;   // [KHG] "SetRes WxH nosave" (KHGWin -khgshots) leaves the ini alone
 		if( X && Y )
 		{
 			if( Client->FullscreenViewport )
-				MakeFullscreen( X, Y, 1 );
+				MakeFullscreen( X, Y, Save );
 			else
-				SetClientSize( X, Y, 1 );
+				SetClientSize( X, Y, Save );
 		}
 #endif
 		return 1;

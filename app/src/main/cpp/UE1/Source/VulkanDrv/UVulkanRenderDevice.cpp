@@ -20,6 +20,7 @@
 #include <stdexcept>
 
 #include "SDL2/SDL.h"
+#include "SDL2/SDL_vulkan.h"   // SDL_Vulkan_GetDrawableSize
 #include "PlatformSurface.h"   // [KHG] native window + VkSurfaceKHR per platform
 
 // IMPLEMENT_CLASS + CurrentFrameIndex live in VulkanDrv.cpp.
@@ -42,7 +43,11 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 	HighDetailActors = 1;
 	NoVolumetricBlend = 1;
 
+#ifdef PLATFORM_ANDROID
 	UseVSync = 0;          // Android: present mode chosen by the swapchain; no vsync toggle
+#else
+	UseVSync = 1;          // [KHG] desktop: wait for vertical sync like the retail Glide driver; UseVSync=False to uncap
+#endif
 	AntialiasMode = 0;
 	UsePrecache = 1;
 	GammaMode = 0;
@@ -59,6 +64,12 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 	LightMode = 0;          // [KHG] GL parity: no actor *1.5 (flag 32), no lightmap*2 disable (flag 64)
 	GlideGamma = 1;         // [KHG] 3dfx Glide look: present gamma = 0.5+1.5*Brightness; 0 = old flat Brightness*2.0
 	GammaCorrectScreenshots = 1;
+#ifndef PLATFORM_ANDROID
+	// [KHG] KHGWin.exe -khgshots: screenshots without the present gamma, so they can be compared with the
+	// retail Glide screenshots after undoing the curve GlideDrv's ReadPixels applies (see RetailShots tools).
+	if( appStrfind( appCmdLine(), "-khgshots" ) || appStrfind( appCmdLine(), "-KHGSHOTS" ) )
+		GammaCorrectScreenshots = 0;
+#endif
 	VkDeviceIndex = 0;
 	VkDebug = 0;
 	VkExclusiveFullscreen = 0;
@@ -558,7 +569,20 @@ void UVulkanRenderDevice::Flush()
 
 UBOOL UVulkanRenderDevice::Exec( const char* Cmd, FOutputDevice* Out )
 {
+	guard(UVulkanRenderDevice::Exec);
+	// [KHG] "vsync" shows the setting, "vsync on|off" changes it (the swapchain is rebuilt on the next frame).
+	if( ParseCommand( &Cmd, "VSYNC" ) )
+	{
+		if( *Cmd )
+		{
+			UseVSync = ( appStricmp( Cmd, "on" )==0 || appStricmp( Cmd, "1" )==0 || appStricmp( Cmd, "true" )==0 );
+			SaveConfig();
+		}
+		Out->Logf( "VSync %s", UseVSync ? "on" : "off" );
+		return 1;
+	}
 	return 0;
+	unguard;
 }
 
 void UVulkanRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane ScreenClear, DWORD RenderLockFlags, BYTE* InHitData, INT* InHitSize )
@@ -693,7 +717,7 @@ void UVulkanRenderDevice::Unlock( UBOOL Blit )
 			RunBloomPass();
 
 		int windowWidth = 0, windowHeight = 0;
-		SDL_GetWindowSize( (SDL_Window*)WindowHandle, &windowWidth, &windowHeight );
+		SDL_Vulkan_GetDrawableSize( (SDL_Window*)WindowHandle, &windowWidth, &windowHeight );   // [KHG] pixels, also on scaled desktops
 		if( windowWidth <= 0 || windowHeight <= 0 ) { windowWidth = Viewport->SizeX; windowHeight = Viewport->SizeY; }
 
 		Stats.ComplexSurfaces = Stats.GouraudPolygons = Stats.Tiles = Stats.DrawCalls = 0;
