@@ -3921,6 +3921,14 @@ void HandleError()
 //
 // Initialize.
 //
+#ifdef PLATFORM_WIN32
+// [KHG] Input record/replay, in NSDLViewport.cpp.
+extern INT GKHGDemoMode;
+extern DWORD GKHGDemoFrame, GKHGDemoEnd;
+UBOOL KHGDemoOpen( const char* RecordFile, const char* ReplayFile );
+void KHGDemoClose();
+#endif
+
 UEngine* InitEngine()
 {
 	guard(InitEngine);
@@ -3929,6 +3937,23 @@ UEngine* InitEngine()
 	appInit();
 #ifdef PLATFORM_WIN32
 	KHGDesktopLogConfigStatus();   // [KHG] report how KHGWin.ini was set up (KHGDesktopConfig.cpp)
+	{
+		// [KHG] -khgrecord=<file> / -khgreplay=<file>: input record and replay (NSDLViewport.cpp). Seed rand()
+		// before the first map's BeginPlay so the recording and every replay start from the same state.
+		char Record[256] = "", Replay[256] = "";
+		Parse( appCmdLine(), "KHGRECORD=", Record, ARRAY_COUNT(Record) );
+		Parse( appCmdLine(), "KHGREPLAY=", Replay, ARRAY_COUNT(Replay) );
+		if( *Record || *Replay )
+		{
+			if( KHGDemoOpen( Record, Replay ) )
+			{
+				srand( 1 );
+				debugf( NAME_Log, "[KHG] Demo: %s %s", *Record ? "recording to" : "replaying", *Record ? Record : Replay );
+			}
+			else
+				debugf( NAME_Warning, "[KHG] Demo: could not open %s", *Record ? Record : Replay );
+		}
+	}
 #endif
 	GDynMem.Init( 65536 );
 
@@ -4116,10 +4141,10 @@ static void KHGLogPawns( ULevel* Level, const char* Tag )
 		if( !P || P->bDeleteMe )
 			continue;
 		UState* State = P->GetMainFrame() ? P->GetMainFrame()->StateNode : NULL;
-		debugf( NAME_Log, "[KHG] MapTest pawn%s %s state=%s phys=%i health=%i water=%i enemy=%s at=(%.0f,%.0f,%.0f)",
+		debugf( NAME_Log, "[KHG] MapTest pawn%s %s state=%s phys=%i health=%i water=%i enemy=%s weapon=%s at=(%.0f,%.0f,%.0f)",
 			Tag, P->GetName(), State ? State->GetName() : "None", (INT)P->Physics, P->Health,
 			P->Region.Zone ? (INT)P->Region.Zone->bWaterZone : -1, P->Enemy ? P->Enemy->GetName() : "None",
-			P->Location.X, P->Location.Y, P->Location.Z );
+			P->Weapon ? P->Weapon->GetName() : "None", P->Location.X, P->Location.Y, P->Location.Z );
 	}
 }
 static void KHGRunMapTest( UEngine* Engine )
@@ -4259,6 +4284,24 @@ void MainLoop( UEngine* Engine )
 #endif
 		// Update the world.
 		DOUBLE NewTime = appSeconds();
+#ifdef PLATFORM_WIN32
+		if( GKHGDemoMode )
+		{
+			// [KHG] Recording/replay: fixed 1/60 s steps; a recording is paced to real time so it plays normally.
+			if( GKHGDemoMode == 2 && GKHGDemoFrame >= GKHGDemoEnd )
+				break;
+			Engine->Tick( 1.0 / 60.0 );
+			GKHGDemoFrame++;
+			if( GKHGDemoMode == 1 )
+			{
+				DOUBLE Wait = OldTime + 1.0/60.0 - appSeconds();
+				if( Wait > 0.0 )
+					appSleep( Wait );
+				OldTime = Max( OldTime + 1.0/60.0, appSeconds() - 0.1 );
+			}
+			continue;
+		}
+#endif
 		Engine->Tick( NewTime - OldTime );
 		OldTime = NewTime;
 
@@ -4271,6 +4314,20 @@ void MainLoop( UEngine* Engine )
 				appSleep( Delta );
 		}
 	}
+#ifdef PLATFORM_WIN32
+	if( GKHGDemoMode )
+	{
+		// [KHG] End of a recording or replay: log where everything ended up, for comparing the runs.
+		UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
+		debugf( NAME_Log, "[KHG] Demo: %s ended at frame %u", GKHGDemoMode==1 ? "recording" : "replay", (unsigned)GKHGDemoFrame );
+		if( GameEngine && GameEngine->GLevel )
+		{
+			debugf( NAME_Log, "[KHG] Demo: level %s", GameEngine->GLevel->GetFullName() );
+			KHGLogPawns( GameEngine->GLevel, "-demoend" );
+		}
+		KHGDemoClose();
+	}
+#endif
 	GIsRunning = 0;
 	unguard;
 }

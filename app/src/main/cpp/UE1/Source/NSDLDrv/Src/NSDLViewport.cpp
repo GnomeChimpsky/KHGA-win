@@ -2496,9 +2496,84 @@ void UNSDLViewport::SetMouseCapture( UBOOL Capture, UBOOL Clip, UBOOL OnlyFocus 
 static UBOOL UE1AndroidCleanDispatchKeyCaptureV86( UNSDLViewport* Viewport, INT Key );
 #endif
 
+
+/*-----------------------------------------------------------------------------
+	[KHG] Input record and replay (desktop test tool, M2 run comparison).
+	KHGWin.exe <map> -khgrecord=<file> runs the game in fixed 1/60 s steps and writes every input event
+	with the engine frame it arrived in; KHGWin.exe <map> -khgreplay=<file> feeds the same events back in
+	the same frames and ignores the real keyboard/mouse, so a win64 and a win32 replay (or a replay and
+	the recording) can be compared. SDLLaunch.cpp drives the frame counter and the fixed steps.
+-----------------------------------------------------------------------------*/
+
+INT   GKHGDemoMode  = 0;   // 0 off, 1 recording, 2 replaying
+DWORD GKHGDemoFrame = 0;   // engine frames ticked since the map started
+DWORD GKHGDemoEnd   = 0;   // replay: the frame the recording ended on
+static FILE* GKHGDemoFile = NULL;
+struct FKHGDemoEvent { DWORD Frame; INT Kind; INT Key; INT Action; FLOAT Delta; };   // Kind 0 input event, 1 typed key
+static TArray<FKHGDemoEvent> GKHGDemoEvents;
+static INT GKHGDemoNext = 0;
+
+UBOOL KHGDemoOpen( const char* RecordFile, const char* ReplayFile )
+{
+	if( RecordFile && *RecordFile )
+	{
+		GKHGDemoFile = fopen( RecordFile, "w" );
+		if( !GKHGDemoFile )
+			return 0;
+		fprintf( GKHGDemoFile, "KHGDEMO 1\n" );
+		GKHGDemoMode = 1;
+		return 1;
+	}
+	FILE* F = ReplayFile && *ReplayFile ? fopen( ReplayFile, "r" ) : NULL;
+	if( !F )
+		return 0;
+	char Line[256];
+	while( fgets( Line, sizeof(Line), F ) )
+	{
+		FKHGDemoEvent E;
+		unsigned Frame;
+		if( sscanf( Line, "E %u %i %i %f", &Frame, &E.Key, &E.Action, &E.Delta )==4 )
+			E.Kind = 0;
+		else if( sscanf( Line, "T %u %i", &Frame, &E.Key )==2 )
+			E.Kind = 1, E.Action = 0, E.Delta = 0.f;
+		else
+		{
+			if( sscanf( Line, "END %u", &Frame )==1 )
+				GKHGDemoEnd = Frame;
+			continue;
+		}
+		E.Frame = Frame;
+		GKHGDemoEvents.AddItem( E );
+	}
+	fclose( F );
+	GKHGDemoMode = 2;
+	return 1;
+}
+
+void KHGDemoClose()
+{
+	if( GKHGDemoFile )
+	{
+		fprintf( GKHGDemoFile, "END %u\n", (unsigned)GKHGDemoFrame );
+		fclose( GKHGDemoFile );
+		GKHGDemoFile = NULL;
+	}
+}
+
+static void KHGDemoRecord( INT Kind, INT Key, INT Action, FLOAT Delta )
+{
+	if( GKHGDemoMode != 1 || !GKHGDemoFile )
+		return;
+	if( Kind == 0 )
+		fprintf( GKHGDemoFile, "E %u %i %i %.9g\n", (unsigned)GKHGDemoFrame, Key, Action, Delta );
+	else
+		fprintf( GKHGDemoFile, "T %u %i\n", (unsigned)GKHGDemoFrame, Key );
+}
+
 UBOOL UNSDLViewport::CauseInputEvent( INT iKey, EInputAction Action, FLOAT Delta )
 {
 	guard(UWindowsViewport::CauseInputEvent);
+	KHGDemoRecord( 0, iKey, (INT)Action, Delta );
 
 	// Route to engine if a valid key
 	if( iKey > 0 )
@@ -2679,6 +2754,24 @@ UBOOL UNSDLViewport::TickInput()
 	}
 #endif
 
+	if( GKHGDemoMode == 2 )
+	{
+		// [KHG] Replay: drop the real input (only a window close still quits) and feed this frame's recorded events.
+		while( SDL_PollEvent( &Ev ) )
+			if( Ev.type == SDL_QUIT )
+				QuitRequested = true;
+		while( GKHGDemoNext < GKHGDemoEvents.Num() && GKHGDemoEvents(GKHGDemoNext).Frame <= GKHGDemoFrame )
+		{
+			const FKHGDemoEvent& E = GKHGDemoEvents(GKHGDemoNext++);
+			if( E.Kind == 0 )
+				CauseInputEvent( E.Key, (EInputAction)E.Action, E.Delta );
+			else
+				Client->Engine->Key( this, (EInputKey)E.Key );
+		}
+		InputUpdateTime = CurTime;
+		return QuitRequested;
+	}
+
 	while( SDL_PollEvent( &Ev ) )
 	{
 		switch( Ev.type )
@@ -2703,7 +2796,10 @@ UBOOL UNSDLViewport::TickInput()
 					if( *p < 0 )
 						break;
 					if( isprint( *p ) || *p == '\r' )
+					{
+						KHGDemoRecord( 1, *p, 0, 0.f );
 						Client->Engine->Key( this, (EInputKey)*p );
+					}
 				}
 				break;
 			case SDL_KEYDOWN:
@@ -3961,6 +4057,13 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 		const char* AviCmd = Cmd;
 		if( ParseCommand( &AviCmd, "PlayAVI" ) )
 		{
+			if( GKHGDemoMode )
+			{
+				// [KHG] Movies play outside the game clock and are skipped by real clicks; leave them out of
+				// recordings and replays so both see exactly the same frames.
+				debugf( NAME_Log, "[KHG] Demo: skipping movie %s", AviCmd );
+				return 1;
+			}
 			const char* Base = appBaseDir(); // e.g. <root>/System/
 			UEngine* Eng = Client ? Client->Engine : NULL;
 			// Play the active clip to completion (blocking): each advance decodes (audio = master clock) and renders one engine frame; UGameEngine::Draw composites into the console frame when SetComposite is on. Ends on EOF/skip.
