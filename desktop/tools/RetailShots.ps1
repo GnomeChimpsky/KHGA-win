@@ -10,6 +10,15 @@ param(
   [string[]]$Maps  # map names; empty = every view file
 )
 $ErrorActionPreference = 'Stop'
+# Everything this script prints also goes to Shots\RetailShots.log, so a failure can be read afterwards.
+$transcript = Join-Path (Split-Path $Out -Parent) 'RetailShots.log'
+try { Start-Transcript -Path $transcript -Force | Out-Null } catch { }
+trap {
+  Write-Host "ERROR: $_" -ForegroundColor Red
+  Write-Host $_.InvocationInfo.PositionMessage
+  try { Stop-Transcript | Out-Null } catch { }
+  exit 1
+}
 $Maps = @($Maps -split '[, ]' | Where-Object { $_ })   # the .bat passes one comma-separated string
 Add-Type -AssemblyName System.Windows.Forms
 $shell = New-Object -ComObject WScript.Shell
@@ -47,15 +56,23 @@ foreach ($f in $files) {
   Write-Host "Retail $map : $($views.Count) views"
   $log = Join-Path $Sys 'KHGShot.log'
   Remove-Item $log -ErrorAction SilentlyContinue
+  $started = Get-Date
   $p = Start-Process -FilePath (Join-Path $Sys 'Khg.exe') -WorkingDirectory $Sys -PassThru `
        -ArgumentList "..\Maps\$map.unr INI=KHGShot.ini LOG=KHGShot.log"
+  Write-Host "  started Khg.exe (pid $($p.Id))"
   # Wait for the level to come up (the log is written as the game runs), then for Glide to settle.
   $deadline = (Get-Date).AddSeconds(120)
   while ((Get-Date) -lt $deadline -and -not $p.HasExited) {
     Start-Sleep -Milliseconds 500
     if ((Test-Path $log) -and (Select-String -Path $log -Pattern "Bringing Level $map.MyLevel up for play" -SimpleMatch -Quiet)) { break }
   }
-  if ($p.HasExited) { $failed += "$map (Khg.exe exited)"; continue }
+  if ($p.HasExited) {
+    $secs = [int]((Get-Date) - $started).TotalSeconds
+    Write-Host "  Khg.exe exited after $secs s with code $($p.ExitCode); log present: $(Test-Path $log)" -ForegroundColor Red
+    if (Test-Path $log) { Copy-Item -Force $log (Join-Path (Split-Path $Out -Parent) "KHGShot-$map.log") }
+    $failed += "$map (Khg.exe exited)"; continue
+  }
+  if (-not (Test-Path $log)) { Write-Host "  no KHGShot.log after 120 s" -ForegroundColor Red }
   Start-Sleep -Seconds 8
   foreach ($v in $views.Keys) {
     $before = @(Get-ChildItem $Sys -Filter 'Shot*.bmp' | ForEach-Object Name)
@@ -71,9 +88,11 @@ foreach ($f in $files) {
   'exit' | Set-Content $cur
   [void]$shell.AppActivate($p.Id); [System.Windows.Forms.SendKeys]::SendWait('{F11}')
   if (-not $p.WaitForExit(20000)) { Stop-Process -Id $p.Id -Force }
+  if (Test-Path $log) { Copy-Item -Force $log (Join-Path (Split-Path $Out -Parent) "KHGShot-$map.log") }
   Start-Sleep -Seconds 2
 }
 Remove-Item $cur -ErrorAction SilentlyContinue
 Write-Host "Retail screenshots: $taken taken, $($failed.Count) failed"
 if ($failed) { Write-Host ('FAILED: ' + ($failed -join ', ')) -ForegroundColor Red }
+try { Stop-Transcript | Out-Null } catch { }
 if ($taken -eq 0) { exit 1 }
