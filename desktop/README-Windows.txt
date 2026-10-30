@@ -53,6 +53,8 @@ Alt+Enter switches between a window and fullscreen. Settings in KHGWin.ini:
   LightMode=3                world lighting level: 3 = the retail Glide
                              level, 0 = the brighter OpenGL/Android level,
                              1 = darker
+  ShinySurfaces=False        True adds reflections to the translucent
+                             mirror floors (the retail game has none)
 
 In the console, "setres 1600x1200" changes the resolution and "vsync on" or
 "vsync off" changes vsync.

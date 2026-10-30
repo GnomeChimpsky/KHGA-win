@@ -67,6 +67,9 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 	// [KHG] desktop: lightmaps at the retail Glide level (flag 128). Measured against retail Khg.exe screenshots
 	// on 10 maps: the GL 2x level was ~1.4x too bright, 1x ~1.4x too dark. LightMode=0 restores 2x, 1 gives 1x.
 	LightMode = 3;
+	// [KHG] desktop: retail Khg.exe/GlideDrv draws translucent mirror floors (m19) as plain floors with no
+	// reflection, which is the ShinySurfaces=False path. ShinySurfaces=True in KHGWin.ini brings the reflections back.
+	ShinySurfaces = 0;
 #endif
 	GlideGamma = 1;         // [KHG] 3dfx Glide look: present gamma = 0.5+1.5*Brightness; 0 = old flat Brightness*2.0
 	GammaCorrectScreenshots = 1;
