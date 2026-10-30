@@ -61,7 +61,13 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 	Bloom = 0;              // [KHG] no bloom (not 1:1)
 	BloomAmount = 128;
 	LODBias = 0.0f;
+#ifdef PLATFORM_ANDROID
 	LightMode = 0;          // [KHG] GL parity: no actor *1.5 (flag 32), no lightmap*2 disable (flag 64)
+#else
+	// [KHG] desktop: lightmaps at the retail Glide level (flag 128). Measured against retail Khg.exe screenshots
+	// on 10 maps: the GL 2x level was ~1.4x too bright, 1x ~1.4x too dark. LightMode=0 restores 2x, 1 gives 1x.
+	LightMode = 3;
+#endif
 	GlideGamma = 1;         // [KHG] 3dfx Glide look: present gamma = 0.5+1.5*Brightness; 0 = old flat Brightness*2.0
 	GammaCorrectScreenshots = 1;
 #ifndef PLATFORM_ANDROID
@@ -85,6 +91,7 @@ void UVulkanRenderDevice::InternalClassInitializer( UClass* Class )
 	new(Class, "Saturation",       RF_Public) UByteProperty ( CPP_PROPERTY(Saturation),       "Options", CPF_Config );
 	new(Class, "LODBias",          RF_Public) UFloatProperty( CPP_PROPERTY(LODBias),          "Options", CPF_Config );
 	new(Class, "GlideGamma",       RF_Public) UBoolProperty ( CPP_PROPERTY(GlideGamma),       "Options", CPF_Config );
+	new(Class, "LightMode",        RF_Public) UByteProperty ( CPP_PROPERTY(LightMode),        "Options", CPF_Config );
 	new(Class, "VkDeviceIndex",    RF_Public) UIntProperty  ( CPP_PROPERTY(VkDeviceIndex),    "Options", CPF_Config );
 	new(Class, "VkDebug",          RF_Public) UBoolProperty ( CPP_PROPERTY(VkDebug),          "Options", CPF_Config );
 	new(Class, "UseBindless",      RF_Public) UIntProperty  ( CPP_PROPERTY(UseBindless),      "Options", CPF_Config );
@@ -893,6 +900,7 @@ void UVulkanRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& S
 	if( detailtex && !fogmap ) flags |= 4;
 	if( fogmap ) flags |= 8;
 	if( LightMode == 1 ) flags |= 64;
+	if( LightMode == 3 ) flags |= 128; // [KHG] retail Glide lightmap level
 
 	if( fogmap ) // if Surface.FogMap exists, use instead of detail texture
 	{

@@ -4589,8 +4589,12 @@ static void KHGRunShots( UEngine* Engine )
 				if( KHGWriteShotBMP( File, Buf, Viewport->SizeX, Viewport->SizeY ) )
 				{
 					Taken++;
-					debugf( NAME_Log, "[KHG] Shots: %s_%s at (%.0f,%.0f,%.0f)", MapName, View,
-						Viewport->Actor->Location.X, Viewport->Actor->Location.Y, Viewport->Actor->Location.Z );
+					APlayerPawn* P = Viewport->Actor;
+					FPointRegion R = P->XLevel->Model->PointRegion( P->Level, P->Location );
+					debugf( NAME_Log, "[KHG] Shots: %s_%s at (%.0f,%.0f,%.0f) zone %s (point %s) fog (%.2f,%.2f,%.2f) scale %.2f",
+						MapName, View, P->Location.X, P->Location.Y, P->Location.Z,
+						P->Region.Zone ? P->Region.Zone->GetName() : "None", R.Zone ? R.Zone->GetName() : "None",
+						P->FlashFog.X, P->FlashFog.Y, P->FlashFog.Z, P->FlashScale.X );
 				}
 				else
 				{

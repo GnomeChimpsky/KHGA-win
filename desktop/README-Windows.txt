@@ -50,6 +50,9 @@ Alt+Enter switches between a window and fullscreen. Settings in KHGWin.ini:
   [VulkanDrv.VulkanRenderDevice]
   UseVSync=True              wait for the monitor refresh like the retail
                              Glide driver; False = no frame cap
+  LightMode=3                world lighting level: 3 = the retail Glide
+                             level, 0 = the brighter OpenGL/Android level,
+                             1 = darker
 
 In the console, "setres 1600x1200" changes the resolution and "vsync on" or
 "vsync off" changes vsync.

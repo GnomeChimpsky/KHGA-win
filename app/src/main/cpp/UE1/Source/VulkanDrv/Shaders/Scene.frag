@@ -44,7 +44,8 @@ void main()
     if (clipNear < 0.0) discard; // [KHG] near-plane clip (replaces gl_ClipDistance, which crashes Mali's SPIR-V compiler)
 
     float actorXBlending = (flags & 32) != 0 ? 1.5 : 1.0;
-    float oneXBlending = (flags & 64) != 0 ? 1.0 : 2.0;
+    // [KHG] flag 128: retail Glide lightmap level (measured against Khg.exe/GlideDrv screenshots), between 1x and 2x.
+    float oneXBlending = (flags & 128) != 0 ? 1.41421356 : ((flags & 64) != 0 ? 1.0 : 2.0);
 
     outColor = darkClamp(textureTex(texCoord)) * color;
     outColor.rgb *= actorXBlending;
