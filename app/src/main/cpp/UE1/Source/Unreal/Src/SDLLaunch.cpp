@@ -4271,6 +4271,9 @@ void MainLoop( UEngine* Engine )
 	KHGShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
 #endif
 	DOUBLE OldTime = appSeconds();
+#ifdef PLATFORM_WIN32
+	const UBOOL KHGDemoFast = ParseParam( appCmdLine(), "KHGFAST" );
+#endif
 	while( GIsRunning && !GIsRequestingExit )
 	{
 #if defined(PLATFORM_ANDROID)
@@ -4287,17 +4290,21 @@ void MainLoop( UEngine* Engine )
 #ifdef PLATFORM_WIN32
 		if( GKHGDemoMode )
 		{
-			// [KHG] Recording/replay: fixed 1/60 s steps; a recording is paced to real time so it plays normally.
+			// [KHG] Recording/replay: fixed 1/60 s steps, paced to real time so both play at normal speed
+			// (-khgfast runs a replay as fast as it can). Sleep most of the wait, then spin the last 2 ms:
+			// Windows sleeps are too coarse to hit 1/60 s steps evenly.
 			if( GKHGDemoMode == 2 && GKHGDemoFrame >= GKHGDemoEnd )
 				break;
 			Engine->Tick( 1.0 / 60.0 );
 			GKHGDemoFrame++;
-			if( GKHGDemoMode == 1 )
+			if( GKHGDemoMode == 1 || !KHGDemoFast )
 			{
-				DOUBLE Wait = OldTime + 1.0/60.0 - appSeconds();
-				if( Wait > 0.0 )
-					appSleep( Wait );
-				OldTime = Max( OldTime + 1.0/60.0, appSeconds() - 0.1 );
+				const DOUBLE Next = OldTime + 1.0/60.0;
+				if( Next - appSeconds() > 0.002 )
+					appSleep( Next - appSeconds() - 0.002 );
+				while( appSeconds() < Next )
+					;
+				OldTime = Max( Next, appSeconds() - 0.1 );
 			}
 			continue;
 		}
