@@ -4590,11 +4590,19 @@ static void KHGRunShots( UEngine* Engine )
 				{
 					Taken++;
 					APlayerPawn* P = Viewport->Actor;
-					FPointRegion R = P->XLevel->Model->PointRegion( P->Level, P->Location );
-					debugf( NAME_Log, "[KHG] Shots: %s_%s at (%.0f,%.0f,%.0f) zone %s (point %s) fog (%.2f,%.2f,%.2f) scale %.2f",
-						MapName, View, P->Location.X, P->Location.Y, P->Location.Z,
-						P->Region.Zone ? P->Region.Zone->GetName() : "None", R.Zone ? R.Zone->GetName() : "None",
+					FPointRegion R = P->XLevel->Model->PointRegion( P->Level, P->Location + FVector(0,0,P->EyeHeight) );
+					debugf( NAME_Log, "[KHG] Shots: %s_%s at (%.0f,%.0f,%.0f) eye %.0f zone %s (eye point %s leaf %i) fog (%.2f,%.2f,%.2f) scale %.2f",
+						MapName, View, P->Location.X, P->Location.Y, P->Location.Z, P->EyeHeight,
+						P->Region.Zone ? P->Region.Zone->GetName() : "None", R.Zone ? R.Zone->GetName() : "None", R.iLeaf,
 						P->FlashFog.X, P->FlashFog.Y, P->FlashFog.Z, P->FlashScale.X );
+					// Visible actors close to the camera (a patrolling pawn walking into the view point fills the screen).
+					for( INT a=0; a<P->XLevel->Num(); a++ )
+					{
+						AActor* A = P->XLevel->Actors(a);
+						if( A && A!=P && A->DrawType!=DT_None && !A->bHidden && (A->Location-P->Location).Size()<150.f )
+							debugf( NAME_Log, "[KHG] Shots:   near %s (%s) dist %.0f mesh %s",
+								A->GetName(), A->GetClass()->GetName(), (A->Location-P->Location).Size(), A->Mesh ? A->Mesh->GetName() : "None" );
+					}
 				}
 				else
 				{
