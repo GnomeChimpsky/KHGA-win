@@ -4106,6 +4106,11 @@ static void KHGRunMapTest( UEngine* Engine )
 	UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
 	if( !GameEngine )
 		return;
+	// -khgmaptest tests every map; -khgmap=M07B.unr tests one; -khgticks=N sets the 1/60 s ticks per map.
+	char Only[256] = "";
+	Parse( appCmdLine(), "KHGMAP=", Only, ARRAY_COUNT(Only) );
+	INT Ticks = 300;
+	Parse( appCmdLine(), "KHGTICKS=", Ticks );
 	TArray<FString> Maps = appFindFiles( "..\\Maps\\*.unr" );
 	debugf( NAME_Log, "[KHG] MapTest: %i maps", Maps.Num() );
 	INT Loaded = 0;
@@ -4113,22 +4118,33 @@ static void KHGRunMapTest( UEngine* Engine )
 	{
 		if( appStricmp( *Maps(i), "Entry.unr" )==0 )
 			continue;
+		if( *Only && appStricmp( *Maps(i), Only )!=0 )
+			continue;
 		char URL[256], Error[256] = "";
 		appSprintf( URL, "..\\Maps\\%s", *Maps(i) );
 		debugf( NAME_Log, "[KHG] MapTest %i/%i: %s", i+1, Maps.Num(), *Maps(i) );
+		// Same random sequence and the same fixed 1/60 s ticks on every run, so a win64 and a win32 log of
+		// one map can be compared line by line.
+		srand( 1 );
 		if( !GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
 		{
 			debugf( NAME_Log, "[KHG] MapTest: %s FAILED: %s", *Maps(i), Error );
 			continue;
 		}
 		Loaded++;
-		DOUBLE Start = appSeconds(), OldTime = Start;
-		while( !GIsRequestingExit && appSeconds() - Start < 5.0 )
+		for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
+			Engine->Tick( 1.0 / 60.0 );
+		// One line per pawn: the AI state it ended in, its physics and its zone.
+		ULevel* Level = GameEngine->GLevel;
+		for( INT a = 0; Level && a < Level->Num(); a++ )
 		{
-			DOUBLE NewTime = appSeconds();
-			Engine->Tick( NewTime - OldTime );
-			OldTime = NewTime;
-			appSleep( 0.01 );
+			APawn* P = Cast<APawn>( Level->Actors(a) );
+			if( !P || P->bDeleteMe )
+				continue;
+			UState* State = P->GetMainFrame() ? P->GetMainFrame()->StateNode : NULL;
+			debugf( NAME_Log, "[KHG] MapTest pawn %s state=%s phys=%i health=%i water=%i enemy=%s",
+				P->GetName(), State ? State->GetName() : "None", (INT)P->Physics, P->Health,
+				P->Region.Zone ? (INT)P->Region.Zone->bWaterZone : -1, P->Enemy ? P->Enemy->GetName() : "None" );
 		}
 	}
 	debugf( NAME_Log, "[KHG] MapTest: done, %i loaded", Loaded );
@@ -4153,7 +4169,8 @@ void MainLoop( UEngine* Engine )
 	GetConfigBool( "KHGWin", "PlayIntroAtStartup", PlayIntroAtStartup );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
-	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) )
+	char KhgMapArg[256];
+	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
 	{
 		KHGRunMapTest( Engine );
 		GIsRunning = 0;
