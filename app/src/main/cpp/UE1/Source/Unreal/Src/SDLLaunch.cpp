@@ -4100,20 +4100,46 @@ static void KHGCloseStartupSplash()
 // [KHG] Desktop: KHGWin.exe -khgmaptest loads every map in ..\Maps in turn, runs each for a few seconds and quits,
 // so one run shows whether each mission loads and which missing natives ([KHG] MissingNative) it hits. Each map's
 // log lines follow its "[KHG] MapTest" line. Used for the M2 x86/x64 comparison; normal play never takes this path.
+//   -khgmap=M07B.unr      test one map only
+//   -khgticks=N           1/60 s game ticks per map (default 300)
+//   -khgsavetest          after the ticks, save to slot 100+map number, load that save back and log every pawn
+//                         again ("after load"), so a save/load round trip can be compared with "before save"
+//   -khgloadtest          only load the saves in slots 100+map number (written by the other build) and log the pawns
+//   -khgsavedir=DIR       folder for those saves instead of the game's Save folder
+static void KHGLogPawns( ULevel* Level, const char* Tag )
+{
+	// One line per pawn: the AI state, physics, health, zone and position it is in.
+	for( INT a = 0; Level && a < Level->Num(); a++ )
+	{
+		APawn* P = Cast<APawn>( Level->Actors(a) );
+		if( !P || P->bDeleteMe )
+			continue;
+		UState* State = P->GetMainFrame() ? P->GetMainFrame()->StateNode : NULL;
+		debugf( NAME_Log, "[KHG] MapTest pawn%s %s state=%s phys=%i health=%i water=%i enemy=%s at=(%.0f,%.0f,%.0f)",
+			Tag, P->GetName(), State ? State->GetName() : "None", (INT)P->Physics, P->Health,
+			P->Region.Zone ? (INT)P->Region.Zone->bWaterZone : -1, P->Enemy ? P->Enemy->GetName() : "None",
+			P->Location.X, P->Location.Y, P->Location.Z );
+	}
+}
 static void KHGRunMapTest( UEngine* Engine )
 {
 	guard(KHGRunMapTest);
 	UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
 	if( !GameEngine )
 		return;
-	// -khgmaptest tests every map; -khgmap=M07B.unr tests one; -khgticks=N sets the 1/60 s ticks per map.
 	char Only[256] = "";
 	Parse( appCmdLine(), "KHGMAP=", Only, ARRAY_COUNT(Only) );
 	INT Ticks = 300;
 	Parse( appCmdLine(), "KHGTICKS=", Ticks );
+	UBOOL SaveTest = ParseParam( appCmdLine(), "KHGSAVETEST" );
+	UBOOL LoadTest = ParseParam( appCmdLine(), "KHGLOADTEST" );
+	char OldSavePath[ARRAY_COUNT(GSys->SavePath)], SaveDir[ARRAY_COUNT(GSys->SavePath)] = "";
+	appStrcpy( OldSavePath, GSys->SavePath );
+	if( Parse( appCmdLine(), "KHGSAVEDIR=", SaveDir, ARRAY_COUNT(SaveDir) ) )
+		appStrcpy( GSys->SavePath, SaveDir );
 	TArray<FString> Maps = appFindFiles( "..\\Maps\\*.unr" );
 	debugf( NAME_Log, "[KHG] MapTest: %i maps", Maps.Num() );
-	INT Loaded = 0;
+	INT Loaded = 0, Saved = 0, Restored = 0;
 	for( INT i = 0; i < Maps.Num() && !GIsRequestingExit; i++ )
 	{
 		if( appStricmp( *Maps(i), "Entry.unr" )==0 )
@@ -4121,8 +4147,22 @@ static void KHGRunMapTest( UEngine* Engine )
 		if( *Only && appStricmp( *Maps(i), Only )!=0 )
 			continue;
 		char URL[256], Error[256] = "";
-		appSprintf( URL, "..\\Maps\\%s", *Maps(i) );
 		debugf( NAME_Log, "[KHG] MapTest %i/%i: %s", i+1, Maps.Num(), *Maps(i) );
+		INT Slot = 100 + i;
+		if( LoadTest )
+		{
+			// Load the save the other build wrote for this map and log its pawns straight away.
+			appSprintf( URL, "?load=%i", Slot );
+			if( !GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+			{
+				debugf( NAME_Log, "[KHG] MapTest: %s load of slot %i FAILED: %s", *Maps(i), Slot, Error );
+				continue;
+			}
+			Restored++;
+			KHGLogPawns( GameEngine->GLevel, "-loaded" );
+			continue;
+		}
+		appSprintf( URL, "..\\Maps\\%s", *Maps(i) );
 		// Same random sequence and the same fixed 1/60 s ticks on every run, so a win64 and a win32 log of
 		// one map can be compared line by line.
 		srand( 1 );
@@ -4134,20 +4174,24 @@ static void KHGRunMapTest( UEngine* Engine )
 		Loaded++;
 		for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
 			Engine->Tick( 1.0 / 60.0 );
-		// One line per pawn: the AI state it ended in, its physics and its zone.
-		ULevel* Level = GameEngine->GLevel;
-		for( INT a = 0; Level && a < Level->Num(); a++ )
+		KHGLogPawns( GameEngine->GLevel, "" );
+		if( SaveTest )
 		{
-			APawn* P = Cast<APawn>( Level->Actors(a) );
-			if( !P || P->bDeleteMe )
+			GameEngine->SaveGame( Slot );
+			KHGLogPawns( GameEngine->GLevel, "-saved" );
+			Saved++;
+			appSprintf( URL, "?load=%i", Slot );
+			if( !GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+			{
+				debugf( NAME_Log, "[KHG] MapTest: %s load of slot %i FAILED: %s", *Maps(i), Slot, Error );
 				continue;
-			UState* State = P->GetMainFrame() ? P->GetMainFrame()->StateNode : NULL;
-			debugf( NAME_Log, "[KHG] MapTest pawn %s state=%s phys=%i health=%i water=%i enemy=%s",
-				P->GetName(), State ? State->GetName() : "None", (INT)P->Physics, P->Health,
-				P->Region.Zone ? (INT)P->Region.Zone->bWaterZone : -1, P->Enemy ? P->Enemy->GetName() : "None" );
+			}
+			Restored++;
+			KHGLogPawns( GameEngine->GLevel, "-loaded" );
 		}
 	}
-	debugf( NAME_Log, "[KHG] MapTest: done, %i loaded", Loaded );
+	appStrcpy( GSys->SavePath, OldSavePath );
+	debugf( NAME_Log, "[KHG] MapTest: done, %i loaded, %i saved, %i saves loaded", Loaded, Saved, Restored );
 	unguard;
 }
 #endif
@@ -4170,7 +4214,8 @@ void MainLoop( UEngine* Engine )
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
 	char KhgMapArg[256];
-	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
+	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" )
+	 || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
 	{
 		KHGRunMapTest( Engine );
 		GIsRunning = 0;
