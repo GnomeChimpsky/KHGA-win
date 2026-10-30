@@ -11,3 +11,8 @@ set(CMAKE_FIND_ROOT_PATH /usr/${_prefix})
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+
+# [KHG] SSE2 floating point, as the x64 build uses: with the default x87 maths the two builds round
+# differently and long fights drift apart (M2 input replay test). Every Windows 10/11 PC has SSE2.
+set(CMAKE_C_FLAGS_INIT "-msse2 -mfpmath=sse")
+set(CMAKE_CXX_FLAGS_INIT "-msse2 -mfpmath=sse")
