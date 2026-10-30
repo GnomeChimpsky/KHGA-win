@@ -48,12 +48,13 @@ $taken = 0; $failed = @()
 foreach ($f in $files) {
   $map = $f.BaseName
   # Each "view <name>" line starts a block of console commands.
-  $views = [ordered]@{}; $name = $null
+  # (PowerShell names are case-blind: $views would be the $Views parameter.)
+  $viewCmds = [ordered]@{}; $name = $null
   foreach ($line in Get-Content $f.FullName) {
-    if ($line -match '^view (\S+)') { $name = $Matches[1]; $views[$name] = @(); continue }
-    if ($name -and $line -and -not $line.StartsWith(';')) { $views[$name] += $line }
+    if ($line -match '^view (\S+)') { $name = $Matches[1]; $viewCmds[$name] = @(); continue }
+    if ($name -and $line -and -not $line.StartsWith(';')) { $viewCmds[$name] += $line }
   }
-  Write-Host "Retail $map : $($views.Count) views"
+  Write-Host "Retail $map : $($viewCmds.Count) views"
   $log = Join-Path $Sys 'KHGShot.log'
   Remove-Item $log -ErrorAction SilentlyContinue
   $started = Get-Date
@@ -74,9 +75,9 @@ foreach ($f in $files) {
   }
   if (-not (Test-Path $log)) { Write-Host "  no KHGShot.log after 120 s" -ForegroundColor Red }
   Start-Sleep -Seconds 8
-  foreach ($v in $views.Keys) {
+  foreach ($v in $viewCmds.Keys) {
     $before = @(Get-ChildItem $Sys -Filter 'Shot*.bmp' | ForEach-Object Name)
-    $views[$v] | Set-Content $cur
+    $viewCmds[$v] | Set-Content $cur
     [void]$shell.AppActivate($p.Id); Start-Sleep -Milliseconds 200
     [System.Windows.Forms.SendKeys]::SendWait('{F11}'); Start-Sleep -Milliseconds 900
     [void]$shell.AppActivate($p.Id)
