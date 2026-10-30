@@ -10,6 +10,7 @@ param(
   [string[]]$Maps  # map names; empty = every view file
 )
 $ErrorActionPreference = 'Stop'
+$Maps = @($Maps -split '[, ]' | Where-Object { $_ })   # the .bat passes one comma-separated string
 Add-Type -AssemblyName System.Windows.Forms
 $shell = New-Object -ComObject WScript.Shell
 New-Item -ItemType Directory -Force -Path $Out | Out-Null

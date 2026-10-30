@@ -26,7 +26,7 @@ echo [1/2] KHGWin screenshots ...
 pushd "%SYS%"
 for %%M in (%MAPS%) do (
   echo   %%M
-  start "" /wait KHGWin.exe -khgshots="%SHOTS%\%BUILD%" -khgviews="%SHOTS%\Views" -khgmap=%%M.unr
+  start "" /wait KHGWin.exe -khgshots=..\..\builds\tools\Shots\%BUILD% -khgviews=..\..\builds\tools\Shots\Views -khgmap=%%M.unr
   copy /y KHGWin.log "%SHOTS%\%BUILD%\KHGWin-%%M.log" >nul
 )
 popd
