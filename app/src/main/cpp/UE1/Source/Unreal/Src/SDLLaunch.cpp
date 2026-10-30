@@ -4106,6 +4106,7 @@ static void KHGCloseStartupSplash()
 //                         again ("after load"), so a save/load round trip can be compared with "before save"
 //   -khgloadtest          only load the saves in slots 100+map number (written by the other build) and log the pawns
 //   -khgsavedir=DIR       folder for those saves instead of the game's Save folder
+//   -khgloadsave=N        load save slot N once (e.g. a retail save), log the pawns, run the ticks, log them again
 static void KHGLogPawns( ULevel* Level, const char* Tag )
 {
 	// One line per pawn: the AI state, physics, health, zone and position it is in.
@@ -4137,6 +4138,24 @@ static void KHGRunMapTest( UEngine* Engine )
 	appStrcpy( OldSavePath, GSys->SavePath );
 	if( Parse( appCmdLine(), "KHGSAVEDIR=", SaveDir, ARRAY_COUNT(SaveDir) ) )
 		appStrcpy( GSys->SavePath, SaveDir );
+	INT LoadSlot = -1;
+	if( Parse( appCmdLine(), "KHGLOADSAVE=", LoadSlot ) && LoadSlot >= 0 )
+	{
+		char URL[64], Error[256] = "";
+		appSprintf( URL, "?load=%i", LoadSlot );
+		debugf( NAME_Log, "[KHG] MapTest: loading save slot %i", LoadSlot );
+		if( GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+		{
+			KHGLogPawns( GameEngine->GLevel, "-loaded" );
+			for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
+				Engine->Tick( 1.0 / 60.0 );
+			KHGLogPawns( GameEngine->GLevel, "" );
+			debugf( NAME_Log, "[KHG] MapTest: save slot %i loaded (%s)", LoadSlot, GameEngine->GLevel->GetFullName() );
+		}
+		else debugf( NAME_Log, "[KHG] MapTest: save slot %i FAILED: %s", LoadSlot, Error );
+		appStrcpy( GSys->SavePath, OldSavePath );
+		return;
+	}
 	TArray<FString> Maps = appFindFiles( "..\\Maps\\*.unr" );
 	debugf( NAME_Log, "[KHG] MapTest: %i maps", Maps.Num() );
 	INT Loaded = 0, Saved = 0, Restored = 0;
@@ -4215,6 +4234,7 @@ void MainLoop( UEngine* Engine )
 		KHGPlayIntroFMVOnce( Engine );
 	char KhgMapArg[256];
 	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" )
+	 || Parse( appCmdLine(), "KHGLOADSAVE=", KhgMapArg, ARRAY_COUNT(KhgMapArg) )
 	 || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
 	{
 		KHGRunMapTest( Engine );
