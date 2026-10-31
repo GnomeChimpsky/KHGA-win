@@ -67,9 +67,13 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 	// [KHG] desktop: lightmaps at the retail Glide level (flag 128). Measured against retail Khg.exe screenshots
 	// on 10 maps: the GL 2x level was ~1.4x too bright, 1x ~1.4x too dark. LightMode=0 restores 2x, 1 gives 1x.
 	LightMode = 3;
-	// [KHG] desktop: retail Khg.exe/GlideDrv draws translucent mirror floors (m19) as plain floors with no
-	// reflection, which is the ShinySurfaces=False path. ShinySurfaces=True in KHGWin.ini brings the reflections back.
-	ShinySurfaces = 0;
+#endif
+#ifdef PLATFORM_ANDROID
+	MirrorReflection = 1.0f;
+#else
+	// [KHG] desktop: translucent mirror floors (m19) reflect at half the strength of the OpenGL/Android port,
+	// matching the retail game as seen in play. 1 = full reflection; ShinySurfaces=False removes it.
+	MirrorReflection = 0.5f;
 #endif
 	GlideGamma = 1;         // [KHG] 3dfx Glide look: present gamma = 0.5+1.5*Brightness; 0 = old flat Brightness*2.0
 	GammaCorrectScreenshots = 1;
@@ -95,6 +99,7 @@ void UVulkanRenderDevice::InternalClassInitializer( UClass* Class )
 	new(Class, "LODBias",          RF_Public) UFloatProperty( CPP_PROPERTY(LODBias),          "Options", CPF_Config );
 	new(Class, "GlideGamma",       RF_Public) UBoolProperty ( CPP_PROPERTY(GlideGamma),       "Options", CPF_Config );
 	new(Class, "LightMode",        RF_Public) UByteProperty ( CPP_PROPERTY(LightMode),        "Options", CPF_Config );
+	new(Class, "MirrorReflection", RF_Public) UFloatProperty( CPP_PROPERTY(MirrorReflection), "Options", CPF_Config );
 	new(Class, "VkDeviceIndex",    RF_Public) UIntProperty  ( CPP_PROPERTY(VkDeviceIndex),    "Options", CPF_Config );
 	new(Class, "VkDebug",          RF_Public) UBoolProperty ( CPP_PROPERTY(VkDebug),          "Options", CPF_Config );
 	new(Class, "UseBindless",      RF_Public) UIntProperty  ( CPP_PROPERTY(UseBindless),      "Options", CPF_Config );
@@ -925,6 +930,47 @@ void UVulkanRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& S
 		SetTextureSet( DescriptorSets->GetCompatTextureSet(PolyFlags, tex, lightmap, macrotex, detailtex, false) );
 	}
 	vec4 color(1.0f);
+
+	// [KHG] Translucent mirror: the reflection is already in the frame buffer. Scale it by MirrorReflection with a
+	// modulated pass (dst*src*2, src = MirrorReflection/2 via the constant fog-color path) before the floor goes on.
+	if( (Surface.PolyFlags & PF_Mirrored) && (PolyFlags & PF_Translucent) && MirrorReflection < 1.0f )
+	{
+		float dim = Clamp( MirrorReflection, 0.0f, 1.0f ) * 0.5f;
+		SetPipeline( RenderPasses->GetPipeline(PF_Modulated) );
+		for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
+		{
+			uint32_t vcount = Poly->NumPts;
+			if( vcount < 3 ) continue;
+			uint32_t icount = (vcount - 2) * 3;
+			auto alloc = ReserveVertices(vcount, icount);
+			if( !alloc.vptr ) continue;
+			SceneVertex* vptr = alloc.vptr;
+			uint32_t* iptr = alloc.iptr;
+			for( uint32_t i = 0; i < vcount; i++, vptr++ )
+			{
+				FVector point = Poly->Pts[i]->Point;
+				vptr->Flags = 16;
+				vptr->Position.x = point.X;
+				vptr->Position.y = point.Y;
+				vptr->Position.z = point.Z;
+				vptr->TexCoord.s = vptr->TexCoord.t = 0.0f;
+				vptr->TexCoord2.s = vptr->TexCoord2.t = dim;  // fog color rgb
+				vptr->TexCoord3.s = dim;
+				vptr->TexCoord3.t = 1.0f;                     // fog alpha: replace the (zeroed) texture color
+				vptr->TexCoord4.s = vptr->TexCoord4.t = 0.0f;
+				vptr->Color = vec4(0.0f);
+				vptr->TextureBinds = textureBinds;
+			}
+			for( uint32_t i = alloc.vpos + 2; i < alloc.vpos + vcount; i++ )
+			{
+				*(iptr++) = alloc.vpos;
+				*(iptr++) = i - 1;
+				*(iptr++) = i;
+			}
+			UseVertices(vcount, icount);
+		}
+		SetPipeline( RenderPasses->GetPipeline(PolyFlags) );
+	}
 
 	for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
 	{
