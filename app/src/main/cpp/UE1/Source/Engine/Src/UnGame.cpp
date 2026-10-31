@@ -885,6 +885,46 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, char* Err
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__) || defined(KHG_FMV)   // [KHG] FMV player (NSDLDrv/FMVPlayer.cpp) on Android and the desktop build
 // [KHG] FMV compositing hooks, implemented in NSDLDrv/FMVPlayer.cpp; resolved at the final libUnreal link (no CMake dependency between the Engine and NSDLDrv static modules).
 extern "C" int  UE1FMVIsActive( void );
+
+#ifdef KHG_FMV
+// [KHG] KlingonHUD's title splash and legal screen (first visit to the KLINGON title map). The HUD
+// scales them to the whole canvas, which is 4:3 at every retail resolution; on a wider screen the
+// desktop build draws them on a centred 4:3 canvas with black bars instead of stretching them, and
+// a mouse click moves on to the next screen (the retail game only times them out).
+static INT KHGHUDInt( AHUD* HUD, const char* Name, INT* Set=NULL )
+{
+	UIntProperty* P = HUD ? FindField<UIntProperty>( HUD->GetClass(), Name ) : NULL;
+	if( !P ) return 0;
+	INT* V = (INT*)( (BYTE*)HUD + P->Offset );
+	if( Set ) *V = *Set;
+	return *V;
+}
+static UBOOL KHGHUDBool( AHUD* HUD, const char* Name )
+{
+	UBoolProperty* P = HUD ? FindField<UBoolProperty>( HUD->GetClass(), Name ) : NULL;
+	return P && ( *(DWORD*)( (BYTE*)HUD + P->Offset ) & P->BitMask ) != 0;
+}
+static AHUD* KHGTitleSplashHUD( UViewport* Viewport )
+{
+	APlayerPawn* P = Viewport ? Viewport->Actor : NULL;
+	AHUD* HUD = P ? P->myHUD : NULL;
+	if( HUD && ( KHGHUDBool( HUD, "bDrawSplash" ) || KHGHUDBool( HUD, "bDrawLegal" ) ) )
+		return HUD;
+	return NULL;
+}
+ENGINE_API UBOOL KHGSkipTitleSplash( UViewport* Viewport )
+{
+	AHUD* HUD = KHGTitleSplashHUD( Viewport );
+	if( !HUD )
+		return 0;
+	INT Zero = 0;
+	if( KHGHUDBool( HUD, "bDrawSplash" ) )
+		KHGHUDInt( HUD, "SplashTime", &Zero );   // HUD Timer() then switches to the legal screen
+	else
+		KHGHUDInt( HUD, "LegalTime", &Zero );    // HUD Timer() then ends it and allows the menu
+	return 1;
+}
+#endif
 extern "C" void UE1FMVDrawActiveFrame( void );
 extern "C" int  UE1FMVGetFrameBGRA( const unsigned char** outData, int* outW, int* outH );
 extern "C" int  UE1FMVIsComposite( void );
@@ -1013,7 +1053,33 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 	const UBOOL bFMVActive = UE1FMVIsActive();
 #endif
 	Viewport->RenDev->EndFlash();
+#ifdef KHG_FMV
+	UCanvas* KHGCanvas = Viewport->Canvas;
+	const FLOAT KHGOrgX = KHGCanvas->OrgX, KHGClipX = KHGCanvas->ClipX;
+	const UBOOL KHGPillar = KHGTitleSplashHUD( Viewport ) && KHGCanvas->ClipX * 3.f > KHGCanvas->ClipY * 4.f + 1.f;
+	if( KHGPillar )
+	{
+		const FLOAT W = appFloor( KHGCanvas->ClipY * 4.f / 3.f + 0.5f );
+		KHGCanvas->OrgX = KHGOrgX + appFloor( ( KHGClipX - W ) * 0.5f );
+		KHGCanvas->ClipX = W;
+	}
+#endif
 	Viewport->Actor->eventPostRender( Viewport->Canvas );
+#ifdef KHG_FMV
+	if( KHGPillar )
+	{
+		const FLOAT Left = KHGCanvas->OrgX - KHGOrgX, Right = KHGClipX - Left - KHGCanvas->ClipX;
+		KHGCanvas->OrgX = KHGOrgX;
+		KHGCanvas->ClipX = KHGClipX;
+		UTexture* Black = Viewport->Actor->Level ? Viewport->Actor->Level->DefaultTexture : NULL;
+		if( Black )
+		{
+			// Drawn with colour 0 like KlingonHUD.DrawBlack, which gives black.
+			KHGCanvas->DrawTile( Black, KHGOrgX, KHGCanvas->OrgY, Left, KHGCanvas->ClipY, 0, 0, 1, 1, NULL, KHGCanvas->Z, FPlane(0,0,0,0), FPlane(0,0,0,0), PF_TwoSided | PF_NoSmooth );
+			KHGCanvas->DrawTile( Black, KHGOrgX + KHGClipX - Right, KHGCanvas->OrgY, Right, KHGCanvas->ClipY, 0, 0, 1, 1, NULL, KHGCanvas->Z, FPlane(0,0,0,0), FPlane(0,0,0,0), PF_TwoSided | PF_NoSmooth );
+		}
+	}
+#endif
 	if( Viewport->Console )
 		Viewport->Console->PostRender( Frame );
 	Render->PostRender( Frame );

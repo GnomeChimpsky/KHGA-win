@@ -52,9 +52,12 @@ is presented 4:3 with black bars:
 | `T` | clear to black | colour-keyed | nothing |
 
 - The flag is the first letter of its token; up to five file/flag pairs; `None` skips the file.
-- *Colour-keyed*: the clip's first frame is not shown; its top-left pixel, compared as RGB565,
-  is the colour key, and later frames are drawn only where they differ from it. Nothing is
-  cleared between frames.
+- *Colour-keyed*: the clip's first frame is not drawn on screen; retail blits it to the back
+  surface (a copy of the screen taken after `buildup.avi` or a clear) and takes the back
+  surface's top-left pixel, as RGB565, as the colour key. Later frames are drawn only where
+  they differ from it. Nothing is cleared between frames. For a 640x480 clip the key is the
+  clip's own corner pixel; for a 640x400 cinematic it is the console frame's corner (dark red,
+  24,6,10), so the cinematic is drawn practically opaque between the frame's top and bottom bands.
 - `buffer.avi` (one second of black), `buildup.avi` and `Brief03a.avi` (the `C` clip before
   `Brief03bcd.avi`, which builds its own frame) cannot be skipped; everything else stops on
   Esc, Space, Enter or a mouse click. A skip ends only the current clip.
@@ -69,10 +72,10 @@ frame a run-length-coded mask (layout in `desktop/patches/ffmpeg-indeo5-transpar
 rows are XOR-coded against the row above). FFmpeg skips it, so the character's grey surround
 was opaque. The desktop build patches FFmpeg to decode the mask and return it as
 `AV_FRAME_DATA_SEI_UNREGISTERED` side data (id `KHG-IVI5-TRANSP`). Transparent pixels become
-black, which is also the key colour the first (fully transparent) frame gives the briefings,
-so the character appears inside the console frame's hexagon exactly where the clip says.
-Cinematics played with `Y` (`f_ss`, `f_s2kv`, `victory`) have no mask; their key is black, so
-the console frame shows through their dark areas, as in retail.
+black in the plain-copy modes. In colour-keyed mode a briefing's key pixel is transparent (the
+first frame is fully transparent), and only transparent pixels are left out, so the character
+appears inside the console frame's hexagon exactly where the clip says and its black pixels stay
+(keying on black instead speckled and smeared the briefings; Galvatron's check, 2026-10-31).
 
 Android keeps the approach below (it uses prebuilt FFmpeg libraries without the patch).
 

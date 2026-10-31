@@ -9,6 +9,9 @@
 #include "NSDLDrv.h"
 #include "UnRender.h"
 #include "FMVPlayer.h"   // [KHG] Indeo5/IV50 FMV playback for the playavi handler
+#if defined(KHG_FMV)
+ENGINE_API UBOOL KHGSkipTitleSplash( UViewport* Viewport );   // [KHG] Engine/Src/UnGame.cpp
+#endif
 #if !defined(PLATFORM_ANDROID)
 extern "C" void UE1FMVLog( const char* Msg ) { debugf( NAME_Log, "%s", Msg ); }   // FMVPlayer.cpp messages into KHGWin.log
 #endif
@@ -2917,6 +2920,24 @@ UBOOL UNSDLViewport::TickInput()
 				{
 					// v4.2 selective: disabled broad keyboard trigger from pointer/button event.
 					// original: AndroidRequestSoftKeyboard( this, 90.0f );
+				}
+#endif
+#if defined(KHG_FMV)
+				{
+					// [KHG] A click moves the title splash / legal screen on (see KHGSkipTitleSplash in UnGame.cpp);
+					// that click and its release are not passed to the game.
+					static Uint32 KHGSwallowButtons = 0;
+					const Uint32 Bit = 1u << ( Ev.button.button & 31 );
+					if( Ev.type == SDL_MOUSEBUTTONDOWN && KHGSkipTitleSplash( this ) )
+					{
+						KHGSwallowButtons |= Bit;
+						break;
+					}
+					if( Ev.type == SDL_MOUSEBUTTONUP && ( KHGSwallowButtons & Bit ) )
+					{
+						KHGSwallowButtons &= ~Bit;
+						break;
+					}
 				}
 #endif
 				CauseInputEvent( MouseButtonMap[Ev.button.button], ( Ev.type == SDL_MOUSEBUTTONDOWN ) ? IST_Press : IST_Release );

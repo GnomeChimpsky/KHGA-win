@@ -31,6 +31,10 @@ KHGWin.ini:
   [KHGWin]
   PlayIntroAtStartup=True
 
+The title splash and legal screen are shown at 4:3 with black bars on a
+wider screen, like at the retail game's 4:3 resolutions. A mouse click moves
+on to the next one.
+
 Movies
 ------
 Movies play the way the retail game plays them: on a 640x480 screen (shown 4:3

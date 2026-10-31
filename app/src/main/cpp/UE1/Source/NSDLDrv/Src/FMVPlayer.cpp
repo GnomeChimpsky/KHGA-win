@@ -97,8 +97,11 @@ static FMVState G;
 // (buildup.avi's console frame, the previous clip's last frame, or black after a clear). The
 // desktop playavi handler models that surface as gCanvas and presents it as the movie image.
 // Blit modes, as WinDrv's 0x314 field:
-//   0  colour-keyed: the clip's first frame is not shown, its top-left pixel (16-bit) is the key,
-//      later frames are drawn only where they differ from it (Y/T flags);
+//   0  colour-keyed: the clip's first frame is not shown; it goes to the back surface (a copy
+//      of the screen made after buildup.avi or a clear) and the back surface's top-left pixel
+//      (16-bit) becomes the key. For a 640x480 clip that is the clip's own top-left pixel; for a
+//      640x400 cinematic it is the console frame's corner, so the cinematic is drawn almost
+//      opaque. Later frames are drawn only where they differ from the key (Y/T flags);
 //  -1  plain copy, skippable (N/C flags, breakdn.avi);
 //  -2  plain copy, not skippable (buffer.avi, buildup.avi, Brief03a.avi).
 static const int kCanvasW = 640, kCanvasH = 480;
@@ -107,21 +110,26 @@ static bool      gCanvasOn  = false;
 static int       gBlitMode  = -1;
 static bool      gHaveKey   = false;
 static uint16_t  gKey565    = 0;
+static bool      gKeyIsTransp = false;   // key pixel was a transparent Indeo 5 pixel
+static const uint8_t* gMask   = NULL;    // this frame's transparency mask (255 opaque), or NULL
 
 static inline uint16_t To565( const uint8_t* bgra )
 {
 	return (uint16_t)( ( ( bgra[2] >> 3 ) << 11 ) | ( ( bgra[1] >> 2 ) << 5 ) | ( bgra[0] >> 3 ) );
 }
 
-// Indeo 5 transparency, exported by our FFmpeg patch (desktop/patches) as side data. Retail's
-// decoder leaves transparent pixels of the DirectDraw sample surface unwritten (black), so they
-// become black here, which is also the colour key the briefings end up with.
+// Indeo 5 transparency, exported by our FFmpeg patch (desktop/patches) as side data. The
+// briefings' first frame is fully transparent, so their key is "transparent": in colour-keyed
+// mode only transparent pixels are left out (black pixels of the picture stay, see 2026-10-31
+// review against retail). In the other modes transparent pixels are drawn black.
 static void ApplyTransparency( const AVFrame* f )
 {
+	gMask = NULL;
 	const AVFrameSideData* sd = av_frame_get_side_data( f, AV_FRAME_DATA_SEI_UNREGISTERED );
 	if( !sd || sd->size < 16 + (size_t)G.vidW * G.vidH || memcmp( sd->data, "KHG-IVI5-TRANSP", 16 ) != 0 )
 		return;
 	const uint8_t* m = sd->data + 16;
+	gMask = m;
 	for( int i = 0, n = G.vidW * G.vidH; i < n; ++i )
 		if( !m[i] )
 			G.rgba[(size_t)i*4+0] = G.rgba[(size_t)i*4+1] = G.rgba[(size_t)i*4+2] = 0;
@@ -131,13 +139,26 @@ static void ApplyTransparency( const AVFrame* f )
 static void BlitToCanvas()
 {
 	if( !gCanvasOn || !gCanvas ) return;
+	const int left = (int)( ( kCanvasW - G.vidW ) * 0.5 ), top = (int)( ( kCanvasH - G.vidH ) * 0.5 );
 	if( gBlitMode == 0 && !gHaveKey )
 	{
-		gKey565  = To565( G.rgba );
+		// Retail blits the first frame to the back surface only and reads the key from the
+		// back surface's top-left pixel: the clip's own pixel when it covers the corner,
+		// otherwise what the screen had there (the console frame).
+		if( left <= 0 && top <= 0 )
+		{
+			const size_t i = (size_t)( -top ) * G.vidW + (size_t)( -left );
+			gKeyIsTransp = gMask && !gMask[i];
+			gKey565 = To565( G.rgba + i * 4 );
+		}
+		else
+		{
+			gKeyIsTransp = false;
+			gKey565 = To565( gCanvas );
+		}
 		gHaveKey = true;
-		return;   // retail blits the first frame to the back surface only, to read the key
+		return;
 	}
-	const int left = (int)( ( kCanvasW - G.vidW ) * 0.5 ), top = (int)( ( kCanvasH - G.vidH ) * 0.5 );
 	for( int y = 0; y < G.vidH; ++y )
 	{
 		const int cy = top + y;
@@ -149,7 +170,11 @@ static void BlitToCanvas()
 			const int cx = left + x;
 			if( cx < 0 || cx >= kCanvasW ) continue;
 			const uint8_t* sp = src + (size_t)x * 4;
-			if( gBlitMode == 0 && To565( sp ) == gKey565 ) continue;
+			if( gBlitMode == 0 )
+			{
+				if( gKeyIsTransp ? ( gMask && !gMask[(size_t)y * G.vidW + x] ) : To565( sp ) == gKey565 )
+					continue;
+			}
 			uint8_t* dp = dst + (size_t)cx * 4;
 			dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = 255;
 		}
@@ -429,6 +454,8 @@ extern "C" int UE1FMVOpen( const char* FullPath, SDL_Window* Window )
 	G = FMVState();
 	G.window = Window;
 	gHaveKey = false;
+	gKeyIsTransp = false;
+	gMask = NULL;
 	{
 		const char* Slash = strrchr( FullPath, '/' ); const char* Back = strrchr( FullPath, '\\' );
 		if( Back > Slash ) Slash = Back;
