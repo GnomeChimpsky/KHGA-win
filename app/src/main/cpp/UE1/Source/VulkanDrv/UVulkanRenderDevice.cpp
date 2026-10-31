@@ -1186,6 +1186,11 @@ void UVulkanRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT
 		YL = YL - Y;
 	}
 
+	// [KHG] Retail GlideDrv uploads masked tiles as ARGB1555, multiplies them by the 8-bit constant color and
+	// writes a 16-bit RGB565 framebuffer, which truncates near-black texels to black (the HUD panels' 15,15,15
+	// fill comes out 0,4,0). Flag 256 makes the shader do the same 16-bit math for plain masked tiles.
+	uint32_t tileFlags = ( LightMode == 3 && (PolyFlags & (PF_Masked | PF_Translucent | PF_Modulated)) == PF_Masked ) ? 256 : 0;
+
 	auto alloc = ReserveVertices(4, 6);
 	if( alloc.vptr )
 	{
@@ -1193,10 +1198,10 @@ void UVulkanRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT
 		uint32_t* iptr = alloc.iptr;
 		uint32_t vpos = alloc.vpos;
 
-		vptr[0] = { 0, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u0, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[1] = { 0, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u1, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[2] = { 0, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u1, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[3] = { 0, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u0, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[0] = { tileFlags, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u0, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[1] = { tileFlags, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u1, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[2] = { tileFlags, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u1, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[3] = { tileFlags, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u0, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
 
 		iptr[0] = vpos;
 		iptr[1] = vpos + 1;

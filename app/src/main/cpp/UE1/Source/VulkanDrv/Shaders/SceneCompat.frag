@@ -38,6 +38,24 @@ void main()
 {
     if (clipNear < 0.0) discard; // near-plane clip (replaces gl_ClipDistance)
 
+    // [KHG] flag 256: retail Glide 16-bit tile (masked tiles in LightMode 3). ARGB1555 texel (byte>>3, bit
+    // replicated), times the 8-bit constant color with a >>8, then truncated into an RGB565 framebuffer.
+    if ((flags & 256u) != 0u)
+    {
+        vec4 t = texture(texBase, texCoord);
+        vec3 t5 = floor(t.rgb * (255.0 / 8.0) + 0.001);
+        vec3 te = t5 * 8.0 + floor(t5 / 4.0);
+        vec3 o = floor(te * floor(color.rgb * 255.0 + 0.001) / 256.0);
+        vec3 q = floor(o / vec3(8.0, 4.0, 8.0));
+        o = q * vec3(8.0, 4.0, 8.0) + floor(q / vec3(4.0, 16.0, 4.0));
+        outColor = vec4(o / 255.0, t.a * color.a);
+        #if defined(ALPHATEST)
+        if (outColor.a < 0.5) discard;
+        #endif
+        outHitIndex = hitIndex;
+        return;
+    }
+
     float actorXBlending = (flags & 32) != 0 ? 1.5 : 1.0;
     // [KHG] flag 128: retail Glide lightmap level (measured against Khg.exe/GlideDrv screenshots), between 1x and 2x.
     float oneXBlending = (flags & 128) != 0 ? 1.41421356 : ((flags & 64) != 0 ? 1.0 : 2.0);
