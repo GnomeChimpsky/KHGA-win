@@ -35,7 +35,48 @@ Fullscreen clips (the intro, ship cinematics, briefings on the plain path) are l
 their native aspect and centered. The intro movie and the MicroProse launcher splash are played
 once at startup, before the menu, and are skippable (and no-op if the files are absent).
 
-## The decorated Klingon comm-frame
+## Windows desktop build: the retail sequence (M4)
+
+On the desktop build the `playavi` handler reproduces the retail PC game exactly. The retail
+handler is `UWindowsViewport::PlayAVI` in **WinDrv.dll** (not Window.dll); it switches to
+640x480x16, opens each clip with DirectShow (`IAMMultiMediaStream`) and DirectDraw-blits every
+frame, centred at its native size, onto the primary surface, which keeps whatever was drawn
+last. `UE1FMVPlayAVIRetail` (FMVPlayer.cpp) follows it step for step on a 640x480 canvas that
+is presented 4:3 with black bars:
+
+| Flag | Before the clip | The clip | After the clip |
+|---|---|---|---|
+| `Y` | if no console frame is up: `buffer.avi`, `buildup.avi` | colour-keyed | `breakdn.avi`, clear |
+| `C` | if no console frame is up: `buffer.avi` only | plain copy | nothing |
+| `N` | clear to black | plain copy | nothing |
+| `T` | clear to black | colour-keyed | nothing |
+
+- The flag is the first letter of its token; up to five file/flag pairs; `None` skips the file.
+- *Colour-keyed*: the clip's first frame is not shown; its top-left pixel, compared as RGB565,
+  is the colour key, and later frames are drawn only where they differ from it. Nothing is
+  cleared between frames.
+- `buffer.avi` (one second of black), `buildup.avi` and `Brief03a.avi` (the `C` clip before
+  `Brief03bcd.avi`, which builds its own frame) cannot be skipped; everything else stops on
+  Esc, Space, Enter or a mouse click. A skip ends only the current clip.
+- Once the frame is up, every clip whose flag is not `C` is followed by `breakdn.avi` (retail
+  never clears that state within one command).
+
+### Indeo 5 transparency
+
+The briefing clips (`Brief*.avi` except `Brief03a.avi`, and `kcs4-1.avi`) use Indeo 5
+**transparency**: GOP flag 8, a fill colour of 00ff00, and after the colour planes of each
+frame a run-length-coded mask (layout in `desktop/patches/ffmpeg-indeo5-transparency.patch`;
+rows are XOR-coded against the row above). FFmpeg skips it, so the character's grey surround
+was opaque. The desktop build patches FFmpeg to decode the mask and return it as
+`AV_FRAME_DATA_SEI_UNREGISTERED` side data (id `KHG-IVI5-TRANSP`). Transparent pixels become
+black, which is also the key colour the first (fully transparent) frame gives the briefings,
+so the character appears inside the console frame's hexagon exactly where the clip says.
+Cinematics played with `Y` (`f_ss`, `f_s2kv`, `victory`) have no mask; their key is black, so
+the console frame shows through their dark areas, as in retail.
+
+Android keeps the approach below (it uses prebuilt FFmpeg libraries without the patch).
+
+## The decorated Klingon comm-frame (Android)
 
 The in-game comm/briefing cutscenes are the interesting case. The character video itself is just
 **a figure composited into a hexagonal window on a flat dark surround** — there is **no ornate

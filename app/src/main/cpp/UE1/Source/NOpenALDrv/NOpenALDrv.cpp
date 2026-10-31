@@ -106,6 +106,8 @@ UBOOL UNOpenALAudioSubsystem::Init()
 	}
 
 	alcMakeContextCurrent( Ctx );
+	// [KHG] Say which output device OpenAL Soft opened (on Windows its first choice is WASAPI).
+	debugf( NAME_Init, "OpenAL: %s, device '%s', %d Hz", alGetString( AL_VERSION ), alcGetString( Device, ALC_DEVICE_SPECIFIER ), OutputRate );
 
 	alDistanceModel( AL_LINEAR_DISTANCE_CLAMPED );
 	alDopplerFactor( Max( 0.f, DopplerFactor ) );

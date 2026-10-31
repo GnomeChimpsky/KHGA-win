@@ -31,6 +31,15 @@ KHGWin.ini:
   [KHGWin]
   PlayIntroAtStartup=True
 
+Movies
+------
+Movies play the way the retail game plays them: on a 640x480 screen (shown 4:3
+in the window, with black bars on wider screens), with the Klingon console frame
+built up and broken down around the briefings. Esc, Space, Enter or a mouse
+click skips a movie; the console frame animations cannot be skipped, as in
+retail. Movie sound goes to the default Windows audio device (WASAPI), like
+the game sound. KHGWin.log has one "[KHG] FMV:" line per movie.
+
 Display
 -------
 Alt+Enter switches between a window and fullscreen. Settings in KHGWin.ini:

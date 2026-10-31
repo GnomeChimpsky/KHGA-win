@@ -39,6 +39,12 @@ import stubs/headers live under `app/src/main/cpp/thirdparty/ffmpeg/`. Because t
 libraries are dynamically linked, they can be replaced/relinked independently, as
 the LGPL requires. FFmpeg source is available at <https://ffmpeg.org>.
 
+The Windows build (KHGWin) builds FFmpeg n6.1.2 from source as DLLs with one change of
+ours, `desktop/patches/ffmpeg-indeo5-transparency.patch` (also shipped next to the
+licence texts): the Indeo 5 decoder also decodes the clip's transparency mask, which
+the game's briefing movies use, and returns it as frame side data. The patch is under
+the same LGPL-2.1-or-later licence as FFmpeg.
+
 ## Build tooling
 
 - Android Gradle Plugin `8.13.2`, Gradle `8.13`.

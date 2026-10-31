@@ -24,7 +24,10 @@ FFMPEG_SRC="${2:-${FFMPEG_SRC:-$ROOT/build/ffmpeg-src}}"
 FFMPEG_PREFIX="$ROOT/build/ffmpeg-$ARCH"
 BUILD="$ROOT/build/$NAME"
 
-if [ ! -f "$FFMPEG_PREFIX/include/libavcodec/avcodec.h" ] || [ ! -f "$FFMPEG_PREFIX/COPYING.LGPLv2.1" ]; then
+# Rebuild FFmpeg when it is missing or our FFmpeg patches changed since it was built.
+PATCH_SHA="$(cat "$ROOT"/desktop/patches/ffmpeg-*.patch 2>/dev/null | sha1sum | cut -d' ' -f1)"
+if [ ! -f "$FFMPEG_PREFIX/include/libavcodec/avcodec.h" ] || [ ! -f "$FFMPEG_PREFIX/COPYING.LGPLv2.1" ] \
+   || [ "$(cat "$FFMPEG_PREFIX/khg-patches.sha1" 2>/dev/null)" != "$PATCH_SHA" ]; then
   if [ ! -d "$FFMPEG_SRC" ]; then
     git clone --depth 1 -b n6.1.2 https://github.com/FFmpeg/FFmpeg "$FFMPEG_SRC"
   fi
@@ -48,6 +51,7 @@ cp "$ROOT/THIRDPARTY.md" "$STAGE/KHGWin-Licenses/"
 cp "$ROOT/app/src/main/cpp/thirdparty/SDL2/LICENSE.txt" "$STAGE/KHGWin-Licenses/SDL2.txt"
 cp "$ROOT/app/src/main/cpp/thirdparty/openal-soft/COPYING" "$STAGE/KHGWin-Licenses/OpenAL-Soft.txt"
 cp "$FFMPEG_PREFIX/COPYING.LGPLv2.1" "$STAGE/KHGWin-Licenses/FFmpeg-LGPL-2.1.txt"
+cp "$ROOT"/desktop/patches/ffmpeg-*.patch "$STAGE/KHGWin-Licenses/"   # our FFmpeg changes (LGPL)
 cp "$ROOT/app/src/main/cpp/thirdparty/libxmp/docs/COPYING" "$STAGE/KHGWin-Licenses/libxmp.txt"
 
 rm -f "$BUILD/KHGWin-$NAME.zip" "$BUILD/KHGWin-$NAME-debug.zip"

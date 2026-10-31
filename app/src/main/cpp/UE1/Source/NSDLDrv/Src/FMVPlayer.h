@@ -43,6 +43,22 @@ int  UE1FMVIsActive( void );
 // Used for the retail MicroProse launcher splash shown after the intro movie.
 int  UE1FMVShowStill( const unsigned char* Bgra, int W, int H, double Seconds );
 
+// --- Retail playavi canvas (desktop) ----------------------------------------------------
+// Models the 640x480 DirectDraw surface the retail WinDrv.dll PlayAVI draws movies onto. While
+// the canvas is on, decoded frames are blitted onto it (centred, native size) in the current blit
+// mode and UE1FMVGetFrameBGRA returns the canvas, so the last image stays up between clips.
+void UE1FMVCanvasBegin( void );    // allocate, clear to black, start presenting it
+void UE1FMVCanvasClear( void );    // clear to black (retail N/T flags, after breakdn.avi)
+void UE1FMVCanvasEnd( void );      // stop presenting and free it
+// 0 = colour-keyed on the clip's first top-left pixel (Y/T), -1 = plain, -2 = plain and not skippable.
+void UE1FMVSetBlitMode( int Mode );
+
+// The whole retail WinDrv.dll UWindowsViewport::PlayAVI for one "playavi" command: Files/Flags
+// are the five parsed pairs (flag = first letter of its token), Base the movie folder. PlayLoop is
+// called once per opened clip and must run while( UE1FMVAdvance() ) { draw a frame }.
+void UE1FMVPlayAVIRetail( const char* Base, const char* const Files[5], const char Flags[5],
+                          struct SDL_Window* Window, void (*PlayLoop)( void* Ctx ), void* Ctx );
+
 // Stop and release the active clip.
 void UE1FMVClose( void );
 

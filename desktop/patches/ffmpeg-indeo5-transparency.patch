@@ -1,0 +1,177 @@
+diff --git a/libavcodec/ivi.c b/libavcodec/ivi.c
+index 6076966..1c4f53d 100644
+--- a/libavcodec/ivi.c
++++ b/libavcodec/ivi.c
+@@ -1065,6 +1065,108 @@ static int decode_band(IVI45DecContext *ctx,
+     return result;
+ }
+ 
++/**
++ *  KHG: decode the Indeo 5 transparency block that follows the colour planes
++ *  of a frame whose GOP header has transparency enabled (gop_flags & 8).
++ *
++ *  Layout (LSB-first, worked out from Star Trek: Klingon Honor Guard's movies,
++ *  same run coding as the Indeo 4 transparency band):
++ *    16 bits  size of the block in bytes, counted from its first byte
++ *     8 bits  unknown (0)
++ *     3 bits  number of bounding rectangles, then 4 x 16 bits (x, y, w, h) each
++ *     1 bit   rows are XOR-coded against the row above
++ *     1 bit   band present (must be 1)
++ *     4 bits  codebook rows, then 4 bits of extra bits per row; byte align
++ *     1 bit   whole frame is one value: then 1 bit opaque
++ *   otherwise
++ *     1 bit   data size follows (8 bits, or 0xFF + 24 bits); byte align
++ *     1 bit   value of the first run, then VLC run lengths over a 32-aligned
++ *             width; a run of 0 means 255 pixels with no toggle afterwards.
++ */
++static int ivi5_decode_transparency(IVI45DecContext *ctx, AVCodecContext *avctx,
++                                    int w, int h)
++{
++    GetBitContext *gb = &ctx->gb;
++    int start = get_bits_count(gb) >> 3;
++    int size, nrect, xor_rows, rows, xbits[16], i, x, y;
++    int aw = (w + 31) & ~31;
++    uint8_t *m;
++
++    if (w <= 0 || h <= 0 || get_bits_left(gb) < 48)
++        return AVERROR_INVALIDDATA;
++    if (ctx->transp_mask_w != w || ctx->transp_mask_h != h) {
++        av_freep(&ctx->transp_mask);
++        ctx->transp_mask = av_malloc((size_t)w * h);
++        if (!ctx->transp_mask)
++            return AVERROR(ENOMEM);
++        ctx->transp_mask_w = w;
++        ctx->transp_mask_h = h;
++    }
++    m = ctx->transp_mask;
++
++    size  = get_bits(gb, 16);
++    skip_bits(gb, 8);
++    nrect = get_bits(gb, 3);
++    for (i = 0; i < nrect; i++)
++        skip_bits_long(gb, 64);
++    xor_rows = get_bits1(gb);
++    if (!get_bits1(gb))
++        return AVERROR_INVALIDDATA;
++    rows = get_bits(gb, 4);
++    if (!rows)
++        return AVERROR_INVALIDDATA;
++    for (i = 0; i < rows; i++)
++        xbits[i] = get_bits(gb, 4);
++    align_get_bits(gb);
++
++    if (get_bits1(gb)) {
++        memset(m, get_bits1(gb) ? 255 : 0, (size_t)w * h);
++    } else {
++        int64_t pos = 0, total = (int64_t)aw * h;
++        int cur;
++        if (get_bits1(gb)) {
++            int ds = get_bits(gb, 8);
++            if (ds == 0xFF)
++                skip_bits_long(gb, 24);
++        }
++        align_get_bits(gb);
++        cur = get_bits1(gb);
++        while (pos < total) {
++            int row = 0, j = 0, base = 0, v, next;
++            if (get_bits_left(gb) <= 0)
++                return AVERROR_INVALIDDATA;
++            while (row < rows - 1 && get_bits1(gb))
++                row++;
++            for (i = 0; i < row; i++)
++                base += 1 << xbits[i];
++            for (i = 0; i < xbits[row]; i++)
++                j = (j << 1) | get_bits1(gb);
++            v    = base + j;
++            next = !cur;
++            if (!v) {
++                v    = 255;
++                next = cur;
++            }
++            for (; v > 0 && pos < total; v--, pos++) {
++                x = pos % aw;
++                if (x < w)
++                    m[(pos / aw) * w + x] = cur ? 255 : 0;
++            }
++            cur = next;
++        }
++        align_get_bits(gb);
++        if (xor_rows)
++            for (y = 1; y < h; y++)
++                for (x = 0; x < w; x++)
++                    m[y * w + x] ^= m[(y - 1) * w + x];
++    }
++
++    if ((get_bits_count(gb) >> 3) - start != size)
++        av_log(avctx, AV_LOG_DEBUG, "Transparency size mismatch: %d != %d\n",
++               (get_bits_count(gb) >> 3) - start, size);
++    return 0;
++}
++
+ int ff_ivi_decode_frame(AVCodecContext *avctx, AVFrame *frame,
+                         int *got_frame, AVPacket *avpkt)
+ {
+@@ -1124,6 +1226,16 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, AVFrame *frame,
+             }
+         }
+         ctx->buf_invalid[ctx->dst_buf] = 0;
++
++        /* KHG: Indeo 5 transparency block after the colour planes. */
++        ctx->transp_mask_valid = 0;
++        if (!ctx->is_indeo4 && (ctx->gop_flags & 8)) {
++            if (ivi5_decode_transparency(ctx, avctx, ctx->planes[0].width,
++                                         ctx->planes[0].height) >= 0)
++                ctx->transp_mask_valid = 1;
++            else
++                av_log(avctx, AV_LOG_WARNING, "Could not decode the transparency block\n");
++        }
+     } else {
+         if (ctx->is_scalable)
+             return AVERROR_INVALIDDATA;
+@@ -1158,6 +1270,21 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, AVFrame *frame,
+     ivi_output_plane(&ctx->planes[2], frame->data[1], frame->linesize[1]);
+     ivi_output_plane(&ctx->planes[1], frame->data[2], frame->linesize[2]);
+ 
++    /* KHG: export the transparency mask as frame side data of type
++     * AV_FRAME_DATA_SEI_UNREGISTERED: the 16-byte id "KHG-IVI5-TRANSP\0"
++     * followed by width*height bytes, 255 = opaque, 0 = transparent. The
++     * picture itself is unchanged, so callers that do not look for it are
++     * not affected. */
++    if (ctx->transp_mask_valid) {
++        static const uint8_t id[16] = "KHG-IVI5-TRANSP";
++        size_t sz = (size_t)ctx->transp_mask_w * ctx->transp_mask_h;
++        AVFrameSideData *sd = av_frame_new_side_data(frame, AV_FRAME_DATA_SEI_UNREGISTERED, 16 + sz);
++        if (sd) {
++            memcpy(sd->data, id, 16);
++            memcpy(sd->data + 16, ctx->transp_mask, sz);
++        }
++    }
++
+     *got_frame = 1;
+ 
+     /* If the bidirectional mode is enabled, next I and the following P
+@@ -1221,6 +1348,7 @@ av_cold int ff_ivi_decode_close(AVCodecContext *avctx)
+         ff_vlc_free(&ctx->blk_vlc.cust_tab);
+ 
+     av_frame_free(&ctx->p_frame);
++    av_freep(&ctx->transp_mask);
+ 
+     return 0;
+ }
+diff --git a/libavcodec/ivi.h b/libavcodec/ivi.h
+index 06cd4d9..6b466fb 100644
+--- a/libavcodec/ivi.h
++++ b/libavcodec/ivi.h
+@@ -251,6 +251,12 @@ typedef struct IVI45DecContext {
+     int             show_indeo4_info;
+     uint8_t         has_b_frames;
+     uint8_t         has_transp;      ///< transparency mode status: 1 - enabled
++
++    /* KHG: Indeo 5 transparency mask of the current frame (1 byte per pixel,
++     * 255 = opaque, 0 = transparent), exported as an extra plane in data[3]. */
++    uint8_t         *transp_mask;
++    int             transp_mask_w, transp_mask_h;
++    int             transp_mask_valid;
+     uint8_t         uses_tiling;
+     uint8_t         uses_haar;
+     uint8_t         uses_fullpel;

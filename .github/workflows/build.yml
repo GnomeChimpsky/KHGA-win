@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/ffmpeg-${{ matrix.arch }}
-          key: ffmpeg-n6.1.2-${{ matrix.arch }}-${{ hashFiles('desktop/scripts/build-ffmpeg.sh') }}
+          key: ffmpeg-n6.1.2-${{ matrix.arch }}-${{ hashFiles('desktop/scripts/build-ffmpeg.sh', 'desktop/patches/ffmpeg-*.patch') }}
 
       - name: Build and package
         run: desktop/scripts/build-windows.sh ${{ matrix.arch }}

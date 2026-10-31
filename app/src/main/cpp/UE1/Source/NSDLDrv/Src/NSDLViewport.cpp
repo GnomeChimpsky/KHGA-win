@@ -9,6 +9,9 @@
 #include "NSDLDrv.h"
 #include "UnRender.h"
 #include "FMVPlayer.h"   // [KHG] Indeo5/IV50 FMV playback for the playavi handler
+#if !defined(PLATFORM_ANDROID)
+extern "C" void UE1FMVLog( const char* Msg ) { debugf( NAME_Log, "%s", Msg ); }   // FMVPlayer.cpp messages into KHGWin.log
+#endif
 
 IMPLEMENT_CLASS( UNSDLViewport );
 
@@ -4174,6 +4177,26 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 			UEngine* Eng = Client ? Client->Engine : NULL;
 			// Play the active clip to completion (blocking): each advance decodes (audio = master clock) and renders one engine frame; UGameEngine::Draw composites into the console frame when SetComposite is on. Ends on EOF/skip.
 			#define KHG_FMV_PLAY_LOOP() do { while( UE1FMVAdvance() ) { if( Eng ) Eng->Draw( this, NULL, NULL ); SDL_Delay( 2 ); } } while(0)
+#if !defined(PLATFORM_ANDROID)
+			// [KHG] Desktop: the retail WinDrv.dll PlayAVI sequence (UE1FMVPlayAVIRetail in FMVPlayer.cpp).
+			// Up to five file/flag pairs; the flag is the first letter of its token.
+			{
+				char Files[5][256];
+				char Flags[5];
+				const char* FilePtrs[5];
+				for( INT i = 0; i < 5; ++i )
+				{
+					char Flag[256];
+					ParseToken( AviCmd, Files[i], ARRAY_COUNT(Files[i]), 1 );
+					ParseToken( AviCmd, Flag, ARRAY_COUNT(Flag), 1 );
+					Flags[i]    = Flag[0];
+					FilePtrs[i] = Files[i];
+				}
+				debugf( NAME_Log, "[KHG] PlayAVI: %s", Cmd );
+				struct FLoop { static void Run( void* Ctx ) { UNSDLViewport* V = (UNSDLViewport*)Ctx; UEngine* E = V->Client ? V->Client->Engine : NULL; while( UE1FMVAdvance() ) { if( E ) E->Draw( V, NULL, NULL ); SDL_Delay( 2 ); } } };
+				UE1FMVPlayAVIRetail( Base ? Base : "", FilePtrs, Flags, hWnd, &FLoop::Run, this );
+			}
+#else
 			for( INT i = 0; i < 5; ++i )
 			{
 				char File[256] = "";
@@ -4211,6 +4234,7 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 					UE1FMVReleaseOverlay();
 				}
 			}
+#endif
 			#undef KHG_FMV_PLAY_LOOP
 			return 1;
 		}

@@ -33,7 +33,9 @@ extern "C" {
 #ifdef PLATFORM_ANDROID
 #define FMV_ERR(...) __android_log_print( ANDROID_LOG_ERROR, "KHG_FMV", __VA_ARGS__ )   // keep real failures
 #else
-#define FMV_ERR(...) SDL_LogError( SDL_LOG_CATEGORY_APPLICATION, "KHG_FMV: " __VA_ARGS__ )
+// Desktop: into KHGWin.log (UE1FMVLog is in NSDLViewport.cpp).
+extern "C" void UE1FMVLog( const char* Msg );
+#define FMV_ERR(...) do { char FmvMsg_[1200]; SDL_snprintf( FmvMsg_, sizeof(FmvMsg_), "[KHG] FMV: " __VA_ARGS__ ); UE1FMVLog( FmvMsg_ ); } while(0)
 #endif
 
 #define ARRAY_COUNT_FMV 48   // decoded-video frame-queue capacity (must match FMVState::vq[] size)
@@ -78,16 +80,89 @@ struct FMVState
 	double           lastAudioClock=-1.0;
 	Uint32           lastAudioMoveTicks=0;
 	bool             audioStuck=false;
+	double           devLatency=0.0;     // seconds of audio inside the device buffer
+	// [KHG] Per-clip stats for the log: frames shown/dropped and how late a frame was shown
+	// against the audio clock (the A/V sync error), plus whether the clip was skipped.
+	int              shown=0, dropped=0;
+	double           maxLate=0.0, sumLate=0.0;
+	bool             skipped=false;
+	char             name[128] = "";
 };
 
 static FMVState G;
+
+// ---- retail playavi canvas (desktop) ---------------------------------------------------
+// The retail WinDrv.dll PlayAVI switches to 640x480x16 and DirectDraw-blits every movie frame,
+// centred at its native size, onto the primary surface, which keeps whatever was drawn last
+// (buildup.avi's console frame, the previous clip's last frame, or black after a clear). The
+// desktop playavi handler models that surface as gCanvas and presents it as the movie image.
+// Blit modes, as WinDrv's 0x314 field:
+//   0  colour-keyed: the clip's first frame is not shown, its top-left pixel (16-bit) is the key,
+//      later frames are drawn only where they differ from it (Y/T flags);
+//  -1  plain copy, skippable (N/C flags, breakdn.avi);
+//  -2  plain copy, not skippable (buffer.avi, buildup.avi, Brief03a.avi).
+static const int kCanvasW = 640, kCanvasH = 480;
+static uint8_t*  gCanvas    = NULL;
+static bool      gCanvasOn  = false;
+static int       gBlitMode  = -1;
+static bool      gHaveKey   = false;
+static uint16_t  gKey565    = 0;
+
+static inline uint16_t To565( const uint8_t* bgra )
+{
+	return (uint16_t)( ( ( bgra[2] >> 3 ) << 11 ) | ( ( bgra[1] >> 2 ) << 5 ) | ( bgra[0] >> 3 ) );
+}
+
+// Indeo 5 transparency, exported by our FFmpeg patch (desktop/patches) as side data. Retail's
+// decoder leaves transparent pixels of the DirectDraw sample surface unwritten (black), so they
+// become black here, which is also the colour key the briefings end up with.
+static void ApplyTransparency( const AVFrame* f )
+{
+	const AVFrameSideData* sd = av_frame_get_side_data( f, AV_FRAME_DATA_SEI_UNREGISTERED );
+	if( !sd || sd->size < 16 + (size_t)G.vidW * G.vidH || memcmp( sd->data, "KHG-IVI5-TRANSP", 16 ) != 0 )
+		return;
+	const uint8_t* m = sd->data + 16;
+	for( int i = 0, n = G.vidW * G.vidH; i < n; ++i )
+		if( !m[i] )
+			G.rgba[(size_t)i*4+0] = G.rgba[(size_t)i*4+1] = G.rgba[(size_t)i*4+2] = 0;
+}
+
+// Draw the frame now in G.rgba onto the canvas, centred, as WinDrv's RenderStream does.
+static void BlitToCanvas()
+{
+	if( !gCanvasOn || !gCanvas ) return;
+	if( gBlitMode == 0 && !gHaveKey )
+	{
+		gKey565  = To565( G.rgba );
+		gHaveKey = true;
+		return;   // retail blits the first frame to the back surface only, to read the key
+	}
+	const int left = (int)( ( kCanvasW - G.vidW ) * 0.5 ), top = (int)( ( kCanvasH - G.vidH ) * 0.5 );
+	for( int y = 0; y < G.vidH; ++y )
+	{
+		const int cy = top + y;
+		if( cy < 0 || cy >= kCanvasH ) continue;
+		const uint8_t* src = G.rgba + (size_t)y * G.vidW * 4;
+		uint8_t*       dst = gCanvas + ( (size_t)cy * kCanvasW ) * 4;
+		for( int x = 0; x < G.vidW; ++x )
+		{
+			const int cx = left + x;
+			if( cx < 0 || cx >= kCanvasW ) continue;
+			const uint8_t* sp = src + (size_t)x * 4;
+			if( gBlitMode == 0 && To565( sp ) == gKey565 ) continue;
+			uint8_t* dp = dst + (size_t)cx * 4;
+			dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = 255;
+		}
+	}
+}
 
 static double AudioClock()
 {
 	if( G.adev==0 || G.bytesPerSample<=0 ) return -1.0; // signal: use wall clock
 	long long queued = (long long)SDL_GetQueuedAudioSize( G.adev );
 	long long played = G.totalAudioBytes - queued; if( played<0 ) played=0;
-	return (double)played / (double)( G.outRate * G.bytesPerSample );
+	double c = (double)played / (double)( G.outRate * G.bytesPerSample ) - G.devLatency;
+	return c > 0.0 ? c : 0.0;
 }
 
 static double NowClock()
@@ -136,7 +211,14 @@ static bool PollSkip()
 			case SDL_QUIT: quit=true; break;
 			// [KHG] Skip on Esc-equivalent only: keyboard Esc or controller START (native-direct gamepad START goes via the seq bridge below; this covers any controller SDL delivers as a real SDL_CONTROLLERBUTTON).
 			case SDL_KEYDOWN:
+#ifdef PLATFORM_ANDROID
 				if( ev.key.keysym.sym == SDLK_ESCAPE ) skip=true;
+#else
+				// Retail WinDrv stops a movie on Esc, Space or Enter.
+				if( !ev.key.repeat && ( ev.key.keysym.sym == SDLK_ESCAPE || ev.key.keysym.sym == SDLK_SPACE
+					|| ev.key.keysym.sym == SDLK_RETURN || ev.key.keysym.sym == SDLK_KP_ENTER ) )
+					skip=true;
+#endif
 				break;
 			case SDL_CONTROLLERBUTTONDOWN:
 				if( ev.cbutton.button == SDL_CONTROLLER_BUTTON_START ) skip=true;
@@ -156,6 +238,10 @@ static bool PollSkip()
 	if( UE1AndroidNativeControllerButtonDownSeqV141() != gCtrlSkipBaseline ) skip = true;
 #endif
 	if( quit ) return true; // a real quit always ends the clip
+	if( gCanvasOn && gBlitMode == -2 ) return false;   // retail pumps no messages for these clips
+#ifndef PLATFORM_ANDROID
+	return skip;   // retail has no grace period; the events queued before the clip were flushed at open
+#endif
 	// Grace window: a stray input event delivered right as the clip starts (e.g. the tap/button that
 	// launched the app or kicked off the intro) must not instantly skip the movie. UE1FMVOpen also
 	// flushes the pre-queued events; this covers anything delivered in the first few frames.
@@ -207,16 +293,24 @@ static bool ShowDueVideoFrame( double clk )
 		AVFrame* f = G.vq[G.vqHead];
 		double pts = FramePts( f );
 		if( pts > clk + 0.005 ) break;       // not due yet -> keep it (and all later) queued
-		if( due ) av_frame_free( &due );     // an earlier due frame we skipped past (catch-up)
+		if( due ) { av_frame_free( &due ); G.dropped++; }   // an earlier due frame we skipped past (catch-up)
 		due = f; duePts = pts;
 		G.vqHead = ( G.vqHead + 1 ) % (int)ARRAY_COUNT_FMV;
 		G.vqCount--;
+		if( gCanvasOn && gBlitMode == 0 && !gHaveKey ) break;   // the key comes from the very first frame
 	}
 	if( !due ) return false;
 	uint8_t* planes[4] = { G.rgba, NULL, NULL, NULL };
 	int      stride[4] = { G.vidW*4, 0, 0, 0 };
 	sws_scale( G.sws, due->data, due->linesize, 0, G.vidH, planes, stride );
+	ApplyTransparency( due );
+	BlitToCanvas();
 	G.pendingPts = duePts;
+	{
+		const double late = clk - duePts;
+		G.shown++; G.sumLate += late;
+		if( late > G.maxLate ) G.maxLate = late;
+	}
 	av_frame_free( &due );
 	return true;
 }
@@ -245,7 +339,33 @@ static bool gComposite = false;
 
 // ---- public API ----------------------------------------------------------------------
 
-extern "C" int UE1FMVIsActive( void ) { return G.active ? 1 : 0; }
+extern "C" int UE1FMVIsActive( void ) { return ( G.active || gCanvasOn ) ? 1 : 0; }
+
+extern "C" void UE1FMVCanvasBegin( void )
+{
+	if( !gCanvas ) gCanvas = (uint8_t*)malloc( (size_t)kCanvasW * kCanvasH * 4 );
+	gCanvasOn = gCanvas != NULL;
+	gBlitMode = -1;
+	UE1FMVCanvasClear();
+}
+
+extern "C" void UE1FMVCanvasClear( void )
+{
+	if( !gCanvas ) return;
+	for( size_t i = 0, n = (size_t)kCanvasW * kCanvasH; i < n; ++i )
+	{
+		gCanvas[i*4+0] = gCanvas[i*4+1] = gCanvas[i*4+2] = 0;
+		gCanvas[i*4+3] = 255;
+	}
+}
+
+extern "C" void UE1FMVCanvasEnd( void )
+{
+	gCanvasOn = false;
+	free( gCanvas ); gCanvas = NULL;
+}
+
+extern "C" void UE1FMVSetBlitMode( int Mode ) { gBlitMode = Mode; }
 
 // ---- static splash still (timed, skippable) -------------------------------------------
 // Present a fixed BGRA image (top-down, w*h*4) through the SAME device-agnostic path as the FMV
@@ -281,6 +401,13 @@ extern "C" int UE1FMVShowStill( const unsigned char* bgra, int w, int h, double 
 // [KHG] Composite (framed Y/C) clips are NOT cut here: content is presented full/opaque and the retained console-frame overlay (gOverlayRGBA, window flood-filled to alpha 0 in BakeWindowAlpha) is drawn masked on top so its measured window does all masking; the old hardcoded kHexX/kHexY polygon cut was removed (redundant, caused off-center/black-ring artifacts when the shapes disagreed).
 extern "C" int UE1FMVGetFrameBGRA( const unsigned char** outData, int* outW, int* outH )
 {
+	if( gCanvasOn && gCanvas )
+	{
+		if( outData ) *outData = gCanvas;
+		if( outW )    *outW = kCanvasW;
+		if( outH )    *outH = kCanvasH;
+		return 1;
+	}
 	if( !G.active || !G.rgba || G.vidW <= 0 || G.vidH <= 0 )
 		return 0;
 	if( outData ) *outData = G.rgba;
@@ -301,6 +428,12 @@ extern "C" int UE1FMVOpen( const char* FullPath, SDL_Window* Window )
 	if( !FullPath || !Window ) return 0;
 	G = FMVState();
 	G.window = Window;
+	gHaveKey = false;
+	{
+		const char* Slash = strrchr( FullPath, '/' ); const char* Back = strrchr( FullPath, '\\' );
+		if( Back > Slash ) Slash = Back;
+		SDL_strlcpy( G.name, Slash ? Slash + 1 : FullPath, sizeof(G.name) );
+	}
 
 	if( avformat_open_input( &G.fmt, FullPath, NULL, NULL ) != 0 ) { FMV_ERR("open_input failed: %s", FullPath); UE1FMVClose(); return 0; }
 	if( avformat_find_stream_info( G.fmt, NULL ) < 0 )             { FMV_ERR("find_stream_info failed");        UE1FMVClose(); return 0; }
@@ -359,9 +492,18 @@ extern "C" int UE1FMVOpen( const char* FullPath, SDL_Window* Window )
 			}
 			SDL_AudioSpec want; SDL_zero(want);
 			want.freq=G.outRate; want.format=AUDIO_S16SYS; want.channels=(Uint8)G.outCh; want.samples=1024;
-			G.adev = SDL_OpenAudioDevice( NULL, 0, &want, NULL, 0 );
+			SDL_AudioSpec have; SDL_zero(have);
+			G.adev = SDL_OpenAudioDevice( NULL, 0, &want, &have, 0 );
+			// The device buffer (one callback's worth) is still to be heard after SDL takes it from the
+			// queue; count it so the picture follows what is audible, not what was handed to SDL.
+			if( G.adev && have.freq > 0 ) G.devLatency = (double)have.samples / have.freq;
 			if( G.adev==0 ) FMV_ERR("OpenAudioDevice: %s", SDL_GetError());
-			else SDL_PauseAudioDevice( G.adev, 0 );
+			else
+			{
+				SDL_PauseAudioDevice( G.adev, 0 );
+				static bool Logged = false;   // [KHG] once: which SDL audio driver plays movie sound (WASAPI on Windows)
+				if( !Logged ) { Logged = true; FMV_ERR( "movie audio through SDL driver '%s'", SDL_GetCurrentAudioDriver() ); }
+			}
 		}
 	}
 
@@ -392,7 +534,7 @@ extern "C" int UE1FMVAdvance( void )
 		return 1;
 	}
 
-	if( PollSkip() ) { return 0; }
+	if( PollSkip() ) { G.skipped = true; return 0; }
 
 	double clk = NowClock();
 
@@ -471,6 +613,13 @@ extern "C" void UE1FMVDrawActiveFrame( void )
 
 extern "C" void UE1FMVClose( void )
 {
+#ifndef PLATFORM_ANDROID
+	if( G.active && !gStill && G.fmt )
+		FMV_ERR( "%s %dx%d mode %d: %s after %.2f s, %d frames shown, %d dropped, video behind audio avg %.0f ms max %.0f ms",
+			G.name, G.vidW, G.vidH, gCanvasOn ? gBlitMode : 99, G.skipped ? "skipped" : "ended",
+			( SDL_GetTicks() - G.startTicks ) / 1000.0, G.shown, G.dropped,
+			G.shown ? 1000.0 * G.sumLate / G.shown : 0.0, 1000.0 * G.maxLate );
+#endif
 	if( G.adev ) { SDL_PauseAudioDevice(G.adev,1); SDL_ClearQueuedAudio(G.adev); SDL_CloseAudioDevice(G.adev); }
 	if( G.ownAudioSubsys ) SDL_QuitSubSystem( SDL_INIT_AUDIO );
 	if( G.rgba ) av_free( G.rgba );
@@ -598,4 +747,50 @@ extern "C" void UE1FMVReleaseOverlay( void )
 	if( gOverlayRGBA ) { free( gOverlayRGBA ); gOverlayRGBA = NULL; }
 	gOverlayCpuW = gOverlayCpuH = 0;
 	gComposite = false;
+}
+
+// ---- retail PlayAVI sequence (desktop) --------------------------------------------------
+// WinDrv.dll UWindowsViewport::PlayAVI, step for step: a console frame is built once (buffer.avi,
+// then buildup.avi unless the flag is C) by the first Y or C clip; N and T clear the screen to black
+// and drop the frame; Y and T clips are colour-keyed onto what is on screen, others copied plainly,
+// Brief03a.avi without a skip; every clip whose flag is not C is followed by breakdn.avi while the
+// frame is up (retail never resets that flag afterwards), then the screen is cleared. Names are
+// compared case-sensitively, as retail does.
+extern "C" void UE1FMVPlayAVIRetail( const char* Base, const char* const Files[5], const char Flags[5],
+                                     SDL_Window* Window, void (*PlayLoop)( void* Ctx ), void* Ctx )
+{
+	char Path[1024];
+	auto PlayClip = [&]( const char* Name, int Mode )
+	{
+		SDL_snprintf( Path, sizeof(Path), "%s%s", Base ? Base : "", Name );
+		UE1FMVSetBlitMode( Mode );
+		if( UE1FMVOpen( Path, Window ) ) { PlayLoop( Ctx ); UE1FMVClose(); }
+		else FMV_ERR( "PlayAVI: cannot play %s", Path );
+	};
+	UE1FMVCanvasBegin();
+	bool FrameUp = false;
+	for( int i = 0; i < 5; ++i )
+	{
+		const char Flag = Flags[i];
+		if( ( Flag == 'Y' || Flag == 'C' ) && !FrameUp )
+		{
+			PlayClip( "buffer.avi", -2 );
+			if( Flag != 'C' )
+				PlayClip( "buildup.avi", -2 );
+			FrameUp = true;
+		}
+		else if( Flag == 'N' || Flag == 'T' )
+		{
+			FrameUp = false;
+			UE1FMVCanvasClear();
+		}
+		if( Files[i][0] && strcmp( Files[i], "None" ) != 0 )   // retail tries an empty name too, and fails
+			PlayClip( Files[i], ( Flag == 'Y' || Flag == 'T' ) ? 0 : ( strcmp( Files[i], "Brief03a.avi" ) == 0 ? -2 : -1 ) );
+		if( Flag != 'C' && FrameUp )
+		{
+			PlayClip( "breakdn.avi", -1 );
+			UE1FMVCanvasClear();
+		}
+	}
+	UE1FMVCanvasEnd();
 }
