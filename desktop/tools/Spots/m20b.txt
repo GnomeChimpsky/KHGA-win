@@ -1,0 +1,2 @@
+set PlayerPawn Location (X=-2077.023438,Y=-196.472885,Z=306.099365)
+set PlayerPawn ViewRotation (Pitch=61819,Yaw=39878,Roll=0)

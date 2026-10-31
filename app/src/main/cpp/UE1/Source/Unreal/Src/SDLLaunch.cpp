@@ -4652,6 +4652,30 @@ void MainLoop( UEngine* Engine )
 		GIsRunning = 0;
 		return;
 	}
+	// [KHG] KHGWin.exe <map>.unr -khgexec=<file>: once the map is up, run the console commands in <file>
+	// (e.g. a "set PlayerPawn Location ..." line to drop the player at a spot to look at), then play normally.
+	char KhgExec[256];
+	if( Parse( appCmdLine(), "KHGEXEC=", KhgExec, ARRAY_COUNT(KhgExec) ) )
+	{
+		UGameEngine* GameEngine = Cast<UGameEngine>( Engine );
+		FString Text;
+		if( !appLoadFileToString( Text, KhgExec ) )
+			debugf( NAME_Warning, "[KHG] Exec: could not read %s", KhgExec );
+		else if( GameEngine && GameEngine->Client && GameEngine->Client->Viewports.Num() )
+		{
+			UViewport* Viewport = GameEngine->Client->Viewports(0);
+			for( INT t = 0; t < 10; t++ )
+				Engine->Tick( 1.0 / 60.0 );
+			const char* Data = *Text;
+			char Line[512];
+			while( ParseLine( &Data, Line, ARRAY_COUNT(Line) ) )
+				if( Line[0] && Line[0] != ';' )
+				{
+					debugf( NAME_Log, "[KHG] Exec: %s", Line );
+					Viewport->Exec( Line, GSystem );
+				}
+		}
+	}
 #else
 	KHGPlayIntroFMVOnce( Engine );   // [KHG] intro FMV before the menu (UNREAL_ANDROID_INTRO_FMV_V1)
 	KHGShowMicroProseSplashOnce( Engine );   // [KHG] MicroProse splash after the intro (UNREAL_ANDROID_MICROPROSE_SPLASH_V1)
