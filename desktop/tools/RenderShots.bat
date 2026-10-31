@@ -34,6 +34,8 @@ dir /b "%SHOTS%\%BUILD%\*.bmp" >nul 2>&1 || (echo No KHGWin screenshots were wri
 echo [2/2] Retail screenshots (hands off the keyboard and mouse) ...
 if exist "%SHOTS%\Retail" rmdir /s /q "%SHOTS%\Retail"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOLS%RetailShots.ps1" -Sys "%SYS%" -Views "%SHOTS%\Views" -Out "%SHOTS%\Retail" -Maps %MAPS: =,% || goto fail
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOLS%ShotsCompare.ps1" -Shots "%SHOTS%" -Build %BUILD% || goto fail
+start "" "%SHOTS%\Compare-%BUILD%.html"
 echo Done. Screenshots are in builds\tools\Shots\%BUILD% and builds\tools\Shots\Retail.
 pause
 exit /b 0
