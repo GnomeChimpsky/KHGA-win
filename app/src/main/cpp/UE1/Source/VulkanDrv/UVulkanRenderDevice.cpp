@@ -71,9 +71,9 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 #ifdef PLATFORM_ANDROID
 	MirrorReflection = 1.0f;
 #else
-	// [KHG] desktop: translucent mirror floors (m19) reflect at half the strength of the OpenGL/Android port,
-	// matching the retail game as seen in play. 1 = full reflection; ShinySurfaces=False removes it.
-	MirrorReflection = 0.5f;
+	// [KHG] desktop: translucent mirror floors (m19, m20b) reflect at a quarter of the OpenGL/Android port's
+	// strength, as tuned by eye against the retail game. 1 = full reflection; ShinySurfaces=False removes it.
+	MirrorReflection = 0.25f;
 #endif
 	GlideGamma = 1;         // [KHG] 3dfx Glide look: present gamma = 0.5+1.5*Brightness; 0 = old flat Brightness*2.0
 	GammaCorrectScreenshots = 1;
