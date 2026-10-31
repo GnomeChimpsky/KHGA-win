@@ -43,7 +43,8 @@ The Windows build (KHGWin) builds FFmpeg n6.1.2 from source as DLLs with one cha
 ours, `desktop/patches/ffmpeg-indeo5-transparency.patch` (also shipped next to the
 licence texts): the Indeo 5 decoder also decodes the clip's transparency mask, which
 the game's briefing movies use, and returns it as frame side data. The patch is under
-the same LGPL-2.1-or-later licence as FFmpeg.
+the same LGPL-2.1-or-later licence as FFmpeg. The same DLLs also decode ripped CD-audio tracks (Ogg Vorbis/Opus, FLAC, MP3,
+WAV) for the game's CD music; only LGPL decoders are enabled.
 
 ## Build tooling
 

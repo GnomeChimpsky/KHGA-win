@@ -45,6 +45,10 @@ class DLL_EXPORT UNOpenALAudioSubsystem : public UAudioSubsystem
 	FLOAT DopplerFactor;
 	UBOOL UseReverb;
 	UBOOL UseHRTF;
+#ifdef KHG_CDMUSIC
+	UBOOL UseCDMusic;
+	char CDMusicPath[256];
+#endif
 
 	// Constructors.
 	static void InternalClassInitializer( UClass* Class );
@@ -102,6 +106,20 @@ private:
 	ALuint MusicBuffers[NUM_MUSIC_BUFFERS];
 	ALuint FreeMusicBuffers[NUM_MUSIC_BUFFERS];
 	INT NumFreeMusicBuffers;
+
+#ifdef KHG_CDMUSIC
+	// [KHG] Ripped CD tracks: PlayerPawn.CdTrack played from a file, like Galaxy plays it from the CD.
+	BYTE CDTrack = 255;                       // track Galaxy would be playing, 255 = none
+	struct FCDMusicStream* CDStream = nullptr; // decoder, null when the track ended or has no file
+	ALuint CDSource = INVALID_SOURCE;
+	ALuint CDBuffers[NUM_MUSIC_BUFFERS];
+	ALuint FreeCDBuffers[NUM_MUSIC_BUFFERS];
+	INT NumFreeCDBuffers = 0;
+	short CDBufferData[STREAM_BUFSIZE / sizeof(short)];
+	void StartCDTrack( BYTE Track );
+	void StopCDTrack();
+	void UpdateCDBuffers();
+#endif
 
 	volatile UBOOL MusicThreadRunning;
 	FMutex MusicMutex { "MusicMutex" };

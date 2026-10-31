@@ -24,8 +24,8 @@ FFMPEG_SRC="${2:-${FFMPEG_SRC:-$ROOT/build/ffmpeg-src}}"
 FFMPEG_PREFIX="$ROOT/build/ffmpeg-$ARCH"
 BUILD="$ROOT/build/$NAME"
 
-# Rebuild FFmpeg when it is missing or our FFmpeg patches changed since it was built.
-PATCH_SHA="$(cat "$ROOT"/desktop/patches/ffmpeg-*.patch 2>/dev/null | sha1sum | cut -d' ' -f1)"
+# Rebuild FFmpeg when it is missing or build-ffmpeg.sh or our FFmpeg patches changed since it was built.
+PATCH_SHA="$(cat "$ROOT"/desktop/scripts/build-ffmpeg.sh "$ROOT"/desktop/patches/ffmpeg-*.patch 2>/dev/null | sha1sum | cut -d' ' -f1)"
 if [ ! -f "$FFMPEG_PREFIX/include/libavcodec/avcodec.h" ] || [ ! -f "$FFMPEG_PREFIX/COPYING.LGPLv2.1" ] \
    || [ "$(cat "$FFMPEG_PREFIX/khg-patches.sha1" 2>/dev/null)" != "$PATCH_SHA" ]; then
   if [ ! -d "$FFMPEG_SRC" ]; then

@@ -40,6 +40,28 @@ click skips a movie; the console frame animations cannot be skipped, as in
 retail. Movie sound goes to the default Windows audio device (WASAPI), like
 the game sound. KHGWin.log has one "[KHG] FMV:" line per movie.
 
+Music from the game CD
+----------------------
+Ten levels have music events that start a track from the game CD, which the
+retail game plays when UseCDMusic is on (track 2 in M07B, M12, M13, M15, M18C
+and M19, track 3 in M06B, 4 in M20A, 6 in M07A, 11 in M09A).
+KHGWin plays these from ripped audio files instead of the disc. Put them in
+the Music folder of your install (next to System), named by track number:
+
+  Music\Track02.ogg   Music\Track03.flac   Music\Track11.mp3   ...
+
+.ogg, .flac, .mp3, .wav and .opus work; "Track 02", "02" or "02 - Title"
+are also found. Like the CD, a track plays once from its start and is not
+repeated, at the in-game music volume. Without the files those levels sound
+as the retail game does without the CD. KHGWin.log says which file it plays
+("[KHG] CD track"). Settings in KHGWin.ini:
+
+  [NOpenALDrv.NOpenALAudioSubsystem]
+  UseCDMusic=True            False = never play CD tracks
+  CDMusicPath=..\Music       folder with the track files (relative to System)
+
+The console command "cdtrack 2" plays a track, like in retail.
+
 Display
 -------
 Alt+Enter switches between a window and fullscreen. Settings in KHGWin.ini:

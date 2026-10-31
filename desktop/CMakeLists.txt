@@ -109,6 +109,11 @@ add_subdirectory("${UE1_ROOT}/Source" "${CMAKE_BINARY_DIR}/UE1")
 
 target_link_libraries(NSDLDrv ff_avformat ff_avcodec ff_avutil ff_swscale ff_swresample)
 target_include_directories(NSDLDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
+# KHG_CDMUSIC: PlayerPawn.CdTrack is played from ripped track files (NOpenALDrv/CDMusic.cpp).
+target_sources(NOpenALDrv PRIVATE "${UE1_ROOT}/Source/NOpenALDrv/CDMusic.cpp")
+target_compile_definitions(NOpenALDrv PRIVATE KHG_CDMUSIC)
+target_link_libraries(NOpenALDrv ff_avformat ff_avcodec ff_avutil ff_swresample)
+target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # The launcher defines its own WinMain (SDLLaunch.cpp), so SDL2main is not linked.
 target_link_libraries(Unreal xmp_static)
 target_include_directories(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/Res")   # Unreal.ico for KHGWin.rc

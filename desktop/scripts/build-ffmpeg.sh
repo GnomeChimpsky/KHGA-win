@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Cross-builds the minimal LGPL FFmpeg used by the FMV player (AVI demuxer, Indeo 5 and
-# MS-ADPCM decoders, swscale, file protocol) as Windows DLLs with MinGW-w64.
+# MS-ADPCM decoders, swscale, file protocol) and by ripped CD-track music (Ogg Vorbis/Opus,
+# FLAC, MP3 and WAV) as Windows DLLs with MinGW-w64.
 # Same component set as the Android build (see docs/FMV.md); no GPL or nonfree parts. The desktop
 # build also decodes Indeo 5 transparency (desktop/patches/ffmpeg-indeo5-transparency.patch).
 #
@@ -8,6 +9,7 @@
 set -euo pipefail
 
 ARCH="$1"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 SRC="$(cd "$2" && pwd)"
 mkdir -p "$3"
 PREFIX="$(cd "$3" && pwd)"
@@ -44,6 +46,8 @@ cd "$BUILD"
   --disable-avfilter --disable-network --disable-autodetect \
   --disable-hwaccels --disable-everything \
   --enable-demuxer=avi --enable-decoder=indeo5 --enable-decoder=adpcm_ms \
+  --enable-demuxer=ogg,flac,mp3,wav --enable-parser=flac,mpegaudio,vorbis,opus \
+  --enable-decoder=vorbis,opus,flac,mp3float,pcm_s16le,pcm_s24le,pcm_f32le \
   --enable-protocol=file --enable-swscale --enable-swresample \
   --disable-gpl --disable-nonfree --disable-encoders --disable-muxers
 
@@ -51,4 +55,5 @@ make -j"$(nproc)"
 make install
 cp "$SRC/COPYING.LGPLv2.1" "$PREFIX/"   # packaged with the DLLs (build-windows.sh)
 rm -rf "$BUILD"
-cat "$PATCHES"/ffmpeg-*.patch 2>/dev/null | sha1sum | cut -d' ' -f1 > "$PREFIX/khg-patches.sha1"
+# Hash of this script and the patches; build-windows.sh rebuilds FFmpeg when it changes.
+cat "$SELF" "$PATCHES"/ffmpeg-*.patch 2>/dev/null | sha1sum | cut -d' ' -f1 > "$PREFIX/khg-patches.sha1"

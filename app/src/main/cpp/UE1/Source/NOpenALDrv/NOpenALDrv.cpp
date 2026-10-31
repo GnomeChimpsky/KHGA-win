@@ -10,6 +10,9 @@
 
 #include "NOpenALDrvPrivate.h"
 #include "UnRender.h"
+#ifdef KHG_CDMUSIC
+#include "CDMusic.h"
+#endif
 
 /*-----------------------------------------------------------------------------
 	Global implementation.
@@ -44,6 +47,10 @@ void UNOpenALAudioSubsystem::InternalClassInitializer( UClass* Class )
 	new(Class, "UseReverb",          RF_Public)UBoolProperty  ( CPP_PROPERTY( UseReverb          ), "Audio", CPF_Config );
 	new(Class, "UseHRTF",            RF_Public)UBoolProperty  ( CPP_PROPERTY( UseHRTF            ), "Audio", CPF_Config );
 	new(Class, "MusicInterpolation", RF_Public)UByteProperty  ( CPP_PROPERTY( MusicInterpolation ), "Audio", CPF_Config );
+#ifdef KHG_CDMUSIC
+	new(Class, "UseCDMusic",         RF_Public)UBoolProperty  ( CPP_PROPERTY( UseCDMusic         ), "Audio", CPF_Config );
+	new(Class, "CDMusicPath",        RF_Public)UStringProperty( CPP_PROPERTY( CDMusicPath        ), "Audio", CPF_Config, sizeof(CDMusicPath)-1 );
+#endif
 	unguardSlow;
 }
 
@@ -58,6 +65,10 @@ UNOpenALAudioSubsystem::UNOpenALAudioSubsystem()
 	UseHRTF = true;
 	UseReverb = true;
 	MusicInterpolation = XMP_INTERP_LINEAR;
+#ifdef KHG_CDMUSIC
+	UseCDMusic = true;
+	appStrcpy( CDMusicPath, "..\\Music" );
+#endif
 }
 
 UBOOL UNOpenALAudioSubsystem::Init()
@@ -130,6 +141,20 @@ UBOOL UNOpenALAudioSubsystem::Init()
 	}
 	NumFreeMusicBuffers = NUM_MUSIC_BUFFERS;
 
+#ifdef KHG_CDMUSIC
+	alGenSources( 1, &CDSource );
+	alSourcei( CDSource, AL_SOURCE_RELATIVE, AL_TRUE );
+	alSource3f( CDSource, AL_POSITION, 0.f, 0.f, 0.f );
+	alSourcef( CDSource, AL_ROLLOFF_FACTOR, 0.f );
+	alSourcef( CDSource, AL_GAIN, MusicVolume / 255.f );
+	alGenBuffers( NUM_MUSIC_BUFFERS, CDBuffers );
+	for( INT i = 0; i < NUM_MUSIC_BUFFERS; ++i )
+		FreeCDBuffers[i] = CDBuffers[i];
+	NumFreeCDBuffers = NUM_MUSIC_BUFFERS;
+	CDTrack = 255;
+	debugf( NAME_Init, "CD music: %s, tracks from '%s'", UseCDMusic ? "on" : "off (UseCDMusic=False)", CDMusicPath );
+#endif
+
 	if( UseReverb )
 	{
 		alGenEffects( 1, &ReverbEffect );
@@ -171,6 +196,9 @@ void UNOpenALAudioSubsystem::Destroy()
 #endif
 
 	StopMusicThread();
+#ifdef KHG_CDMUSIC
+	StopCDTrack();
+#endif
 
 	USound::Audio = NULL;
 	UMusic::Audio = NULL;
@@ -196,6 +224,11 @@ void UNOpenALAudioSubsystem::Destroy()
 		alDeleteBuffers( ARRAY_COUNT( MusicBuffers ), MusicBuffers );
 		alDeleteSources( MAX_SOURCES, Sources );
 		alDeleteSources( 1, &MusicSource );
+#ifdef KHG_CDMUSIC
+		alDeleteBuffers( NUM_MUSIC_BUFFERS, CDBuffers );
+		alDeleteSources( 1, &CDSource );
+		CDSource = INVALID_SOURCE;
+#endif
 		alcMakeContextCurrent( NULL );
 		alcDestroyContext( Ctx );
 		Ctx = NULL;
@@ -229,6 +262,13 @@ void UNOpenALAudioSubsystem::ShutdownAfterError()
 	UMusic::Audio = NULL;
 
 	// Shutdown contexts without touching anything else.
+#ifdef KHG_CDMUSIC
+	if( CDStream )
+	{
+		CDMusicClose( CDStream );
+		CDStream = nullptr;
+	}
+#endif
 	if( MusicCtx )
 	{
 		xmp_free_context( MusicCtx );
@@ -275,6 +315,9 @@ void UNOpenALAudioSubsystem::PostEditChange()
 		alListenerf( AL_GAIN, MasterVolume / 255.f );
 		alDopplerFactor( DopplerFactor );
 		alSourcef( MusicSource, AL_GAIN, Max(MusicFade, 0.f) * MusicVolume / 255.f );
+#ifdef KHG_CDMUSIC
+		alSourcef( CDSource, AL_GAIN, MusicVolume / 255.f );
+#endif
 		// Voice volumes will be updated in Update().
 	}
 
@@ -302,6 +345,11 @@ void UNOpenALAudioSubsystem::SetViewport( UViewport* InViewport )
 			UnregisterMusic( Music );
 			Music = NULL;
 		}
+#ifdef KHG_CDMUSIC
+		// Galaxy stops the CD track here too.
+		StopCDTrack();
+		CDTrack = 255;
+#endif
 	}
 
 	Viewport = InViewport;
@@ -852,7 +900,12 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 	{
 		// Track is changing.
 		UBOOL MusicChanged = Music != Viewport->Actor->Song;
+#ifdef KHG_CDMUSIC
+		// Like Galaxy: a CD track that is still on counts as playing music until the transition is done.
+		if( Music || CDTrack != 255 )
+#else
 		if( Music )
+#endif
 		{
 			// Already playing something, figure out if we're ready to change.
 			UBOOL MusicDone = false;
@@ -887,6 +940,10 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 				if( Music && MusicChanged )
 					UnregisterMusic( Music );
 				Music = NULL;
+#ifdef KHG_CDMUSIC
+				StopCDTrack();
+				CDTrack = 255;
+#endif
 			}
 			else
 			{
@@ -912,6 +969,12 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 				else
 					StopMusic();
 			}
+#ifdef KHG_CDMUSIC
+			// Galaxy then starts PlayerPawn.CdTrack from its beginning, once, next to any song.
+			CDTrack = Viewport->Actor->CdTrack;
+			if( CDTrack != 255 && UseCDMusic )
+				StartCDTrack( CDTrack );
+#endif
 			Viewport->Actor->Transition = MTRAN_None;
 		}
 	}
@@ -1061,6 +1124,21 @@ UBOOL UNOpenALAudioSubsystem::Exec( const char* Cmd, FOutputDevice* Out )
 {
 	guard(UNOpenALAudioSubsystem::Exec)
 
+#ifdef KHG_CDMUSIC
+	if( ParseCommand( &Cmd, "CDTRACK" ) )
+	{
+		// Galaxy's console command: set PlayerPawn.CdTrack and start an instant transition.
+		if( Viewport && Viewport->Actor && *Cmd )
+		{
+			const BYTE Track = (BYTE)atoi( Cmd );
+			Out->Logf( "CD Track %i", Track );
+			Viewport->Actor->CdTrack = Track;
+			Viewport->Actor->Transition = MTRAN_Instant;
+			return true;
+		}
+	}
+	else
+#endif
 	if( ParseCommand( &Cmd, "MusicOrder") )
 	{
 		if( Music && MusicCtx )
@@ -1125,8 +1203,123 @@ void* UNOpenALAudioSubsystem::MusicThreadProc( void* Audio )
 	while( This->MusicThreadRunning )
 	{
 		This->UpdateMusicBuffers();
+#ifdef KHG_CDMUSIC
+		This->UpdateCDBuffers();
+#endif
 		appSleep( 0.1f );
 	}
 
 	return (THREAD_RET)0;
 }
+
+#ifdef KHG_CDMUSIC
+/*-----------------------------------------------------------------------------
+	[KHG] Ripped CD tracks.
+-----------------------------------------------------------------------------*/
+
+void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
+{
+	guard(UNOpenALAudioSubsystem::StartCDTrack)
+
+	StopCDTrack();
+
+	// CDMusicPath is relative to the System folder unless it is absolute.
+	char Dir[512];
+	const char* Base = appBaseDir();
+	if( CDMusicPath[0] && ( CDMusicPath[1] == ':' || CDMusicPath[0] == '\\' || CDMusicPath[0] == '/' ) )
+		appSprintf( Dir, "%s", CDMusicPath );
+	else
+		appSprintf( Dir, "%s%s", Base ? Base : "", CDMusicPath );
+
+	const std::string File = CDMusicFindTrack( Dir, Track );
+	if( File.empty() )
+	{
+		debugf( NAME_Log, "[KHG] CD track %i: no file for it in %s (as without the game CD)", Track, Dir );
+		return;
+	}
+	char Error[256] = "";
+	FCDMusicStream* Stream = CDMusicOpen( File.c_str(), OutputRate, Error, sizeof( Error ) );
+	if( !Stream )
+	{
+		debugf( NAME_Warning, "[KHG] CD track %i: cannot play %s: %s", Track, File.c_str(), Error );
+		return;
+	}
+	debugf( NAME_Log, "[KHG] CD track %i: playing %s", Track, File.c_str() );
+
+	FScopedLock Lock( MusicMutex );
+	CDStream = Stream;
+	alSourcef( CDSource, AL_GAIN, MusicVolume / 255.f );
+
+	unguard;
+}
+
+void UNOpenALAudioSubsystem::StopCDTrack()
+{
+	guard(UNOpenALAudioSubsystem::StopCDTrack)
+
+	FScopedLock Lock( MusicMutex );
+
+	if( CDStream )
+	{
+		CDMusicClose( CDStream );
+		CDStream = nullptr;
+	}
+	if( CDSource != INVALID_SOURCE )
+	{
+		alSourceStop( CDSource );
+		alSourcei( CDSource, AL_BUFFER, 0 ); // unqueues everything of a stopped source
+		NumFreeCDBuffers = NUM_MUSIC_BUFFERS;
+		for( INT i = 0; i < NUM_MUSIC_BUFFERS; ++i )
+			FreeCDBuffers[i] = CDBuffers[i];
+	}
+
+	unguard;
+}
+
+void UNOpenALAudioSubsystem::UpdateCDBuffers()
+{
+	guard(UNOpenALAudioSubsystem::UpdateCDBuffers)
+
+	FScopedLock Lock( MusicMutex );
+
+	if( CDSource == INVALID_SOURCE )
+		return;
+
+	ALint Processed = 0, Queued = 0, State = AL_STOPPED;
+	alGetSourcei( CDSource, AL_BUFFERS_PROCESSED, &Processed );
+	alGetSourcei( CDSource, AL_BUFFERS_QUEUED, &Queued );
+	alGetSourcei( CDSource, AL_SOURCE_STATE, &State );
+	if( Processed > 0 && NumFreeCDBuffers < NUM_MUSIC_BUFFERS )
+	{
+		const INT N = Min( NUM_MUSIC_BUFFERS - NumFreeCDBuffers, Processed );
+		alSourceUnqueueBuffers( CDSource, N, &FreeCDBuffers[NumFreeCDBuffers] );
+		NumFreeCDBuffers += N;
+		Queued -= N;
+	}
+
+	if( !CDStream )
+		return;
+
+	const INT FramesPerBuffer = ARRAY_COUNT( CDBufferData ) / 2;
+	while( Queued < NUM_MUSIC_BUFFERS && NumFreeCDBuffers )
+	{
+		const INT Got = CDMusicRead( CDStream, CDBufferData, FramesPerBuffer );
+		if( Got <= 0 )
+		{
+			// The track has ended. Like MCI_PLAY on the CD it is not repeated.
+			CDMusicClose( CDStream );
+			CDStream = nullptr;
+			break;
+		}
+		const ALuint Buf = FreeCDBuffers[--NumFreeCDBuffers];
+		alBufferData( Buf, AL_FORMAT_STEREO16, CDBufferData, Got * 2 * sizeof( short ), OutputRate );
+		alSourceQueueBuffers( CDSource, 1, &Buf );
+		++Queued;
+	}
+
+	if( Queued > 0 && ( State == AL_INITIAL || State == AL_STOPPED ) )
+		alSourcePlay( CDSource );
+
+	unguard;
+}
+#endif
