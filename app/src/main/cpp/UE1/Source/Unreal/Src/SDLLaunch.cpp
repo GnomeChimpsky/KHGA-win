@@ -4503,8 +4503,9 @@ static void KHGRunShots( UEngine* Engine )
 	if( !Parse( appCmdLine(), "KHGVIEWS=", ViewDir, ARRAY_COUNT(ViewDir) ) )
 		appSprintf( ViewDir, "%s\\..\\Views", ShotDir );
 	Parse( appCmdLine(), "KHGMAP=", Only, ARRAY_COUNT(Only) );
-	INT Ticks = 120;
+	INT Ticks = 120, ViewTicks = 60;
 	Parse( appCmdLine(), "KHGTICKS=", Ticks );
+	Parse( appCmdLine(), "KHGVIEWTICKS=", ViewTicks );   // frames after each view's commands: actor lighting (the weapon) takes ~1 s to settle
 	KHGMakeDirs( ShotDir );
 	KHGMakeDirs( ViewDir );
 	// Render at the retail comparison size (Glide at 1024x768 by default), in whatever window mode is set.
@@ -4579,7 +4580,7 @@ static void KHGRunShots( UEngine* Engine )
 			}
 			if( *View )
 			{
-				for( INT t = 0; t < 6; t++ )
+				for( INT t = 0; t < ViewTicks; t++ )
 					Engine->Tick( 1.0 / 60.0 );
 				char File[512];
 				appSprintf( File, "%s\\%s_%s.bmp", ShotDir, MapName, View );

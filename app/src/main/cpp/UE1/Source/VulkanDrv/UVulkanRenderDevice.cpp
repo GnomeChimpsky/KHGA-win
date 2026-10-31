@@ -909,6 +909,11 @@ void UVulkanRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& S
 	if( fogmap ) flags |= 8;
 	if( LightMode == 1 ) flags |= 64;
 	if( LightMode == 3 ) flags |= 128; // [KHG] retail Glide lightmap level
+	// [KHG] Retail GlideDrv draws masked+translucent surfaces (M04A waterfall and icicles) without their lightmap:
+	// they measure within 2% of retail that way, against ~30% too dark when lightmapped. Plain translucent
+	// surfaces (the m19/m20b mirror floors) keep the lightmap there. Checked against the raw flags, since
+	// ApplyPrecedenceRules drops PF_Masked from translucent surfaces.
+	if( LightMode == 3 && (Surface.PolyFlags & (PF_Translucent | PF_Masked)) == (PF_Translucent | PF_Masked) ) flags &= ~1;
 
 	if( fogmap ) // if Surface.FogMap exists, use instead of detail texture
 	{
