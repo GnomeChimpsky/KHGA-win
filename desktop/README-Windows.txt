@@ -18,6 +18,9 @@ KHGWin.ini   Settings for this port. Created on first run from your retail
              Default.ini (or Khg.ini) with only the video/audio driver lines
              changed, so your retail key bindings and options carry over.
              Delete it to start fresh. Your Khg.ini is never touched.
+             Movement is set to W/S (forward/back) and A/D (strafe) with
+             mouse look; this is applied once to an existing KHGWin.ini too.
+             Change keys in the game's controls menu as usual.
 KHGWin.log   Engine log. Lines tagged "[KHG] MissingNative" list engine
              functions the game uses that the port does not implement yet.
 

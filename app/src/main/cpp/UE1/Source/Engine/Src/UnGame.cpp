@@ -887,6 +887,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, char* Err
 extern "C" int  UE1FMVIsActive( void );
 
 #ifdef KHG_FMV
+extern ENGINE_API FLOAT GKHGCanvasShiftX;   // UnCanvas.cpp
 // [KHG] KlingonHUD's title splash and legal screen (first visit to the KLINGON title map). The HUD
 // scales them to the whole canvas, which is 4:3 at every retail resolution; on a wider screen the
 // desktop build draws them on a centred 4:3 canvas with black bars instead of stretching them, and
@@ -1059,8 +1060,10 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 	const UBOOL KHGPillar = KHGTitleSplashHUD( Viewport ) && KHGCanvas->ClipX * 3.f > KHGCanvas->ClipY * 4.f + 1.f;
 	if( KHGPillar )
 	{
+		// KlingonHUD.PostRender calls Canvas.Reset() (OrgX back to 0) but sizes the splash from
+		// ClipX, so ClipX is narrowed here and the centring offset goes in GKHGCanvasShiftX.
 		const FLOAT W = appFloor( KHGCanvas->ClipY * 4.f / 3.f + 0.5f );
-		KHGCanvas->OrgX = KHGOrgX + appFloor( ( KHGClipX - W ) * 0.5f );
+		GKHGCanvasShiftX = appFloor( ( KHGClipX - W ) * 0.5f );
 		KHGCanvas->ClipX = W;
 	}
 #endif
@@ -1068,7 +1071,8 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 #ifdef KHG_FMV
 	if( KHGPillar )
 	{
-		const FLOAT Left = KHGCanvas->OrgX - KHGOrgX, Right = KHGClipX - Left - KHGCanvas->ClipX;
+		const FLOAT Left = GKHGCanvasShiftX, Right = KHGClipX - Left - KHGCanvas->ClipX;
+		GKHGCanvasShiftX = 0.f;
 		KHGCanvas->OrgX = KHGOrgX;
 		KHGCanvas->ClipX = KHGClipX;
 		UTexture* Black = Viewport->Actor->Level ? Viewport->Actor->Level->DefaultTexture : NULL;

@@ -3,6 +3,7 @@
 =============================================================================*/
 
 #include "KHGDesktopConfig.h"
+#include <stdlib.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -144,6 +145,35 @@ static bool WriteText( const std::string& Path, const std::string& Text )
 
 static std::string GConfigStatus;
 
+// WASD movement with mouse look (Galvatron, 2026-11-01). Applied when KHGWin.ini is created, and
+// once to an existing KHGWin.ini that predates it (marked by [KHGWin] InputDefaults). Only these
+// keys change; all other bindings stay as in the retail ini. Retail Default.ini binds S to
+// "Axis aUp" (swim/fly up); Space (Jump) and C (Duck) already do that.
+static const int kInputDefaultsVersion = 1;
+static const char* const kInputDefaults =
+	"[Engine.Input]\r\n"
+	"W=MoveForward\r\n"
+	"S=MoveBackward\r\n"
+	"A=StrafeLeft\r\n"
+	"D=StrafeRight\r\n"
+	"[Engine.PlayerPawn]\r\n"
+	"bAlwaysMouseLook=True\r\n"
+	"[KHGWin]\r\n"
+	"InputDefaults=1\r\n";
+
+static int InputDefaultsIn( const std::string& Ini )
+{
+	for( const FIniSection& S : Parse( Ini ) )
+		if( SameName( S.Name, "KHGWin" ) )
+			for( const FIniLine& L : S.Lines )
+				if( SameName( KeyOf( L.Text ), "InputDefaults" ) )
+				{
+					const size_t Eq = L.Text.find( '=' );
+					return Eq == std::string::npos ? 0 : atoi( L.Text.c_str() + Eq + 1 );
+				}
+	return 0;
+}
+
 } // namespace
 
 std::string KHGMergeIni( const std::string& Base, const std::string& Overlay )
@@ -212,6 +242,13 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	if( ReadText( Target, Existing ) && !Existing.empty() )
 	{
 		GConfigStatus = "using existing " + Target;
+		if( InputDefaultsIn( Existing ) < kInputDefaultsVersion )
+		{
+			if( WriteText( Target, KHGMergeIni( Existing, kInputDefaults ) ) )
+				GConfigStatus += " (applied WASD movement and mouse look once)";
+			else
+				GConfigStatus += " (WARNING: could not apply WASD defaults)";
+		}
 		return;
 	}
 
@@ -237,7 +274,7 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	if( BaseName.empty() )
 		Base.clear();
 
-	if( !WriteText( Target, KHGMergeIni( Base, Overlay ) ) )
+	if( !WriteText( Target, KHGMergeIni( KHGMergeIni( Base, Overlay ), kInputDefaults ) ) )
 	{
 		GConfigStatus = "WARNING: could not write " + Target;
 		return;

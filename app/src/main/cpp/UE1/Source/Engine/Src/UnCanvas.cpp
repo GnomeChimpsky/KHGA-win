@@ -90,6 +90,11 @@ static FLOAT AndroidCanvasScale()
 	UCanvas scaled sprites.
 -----------------------------------------------------------------------------*/
 
+#ifdef KHG_FMV
+// [KHG] Horizontal offset added to every canvas tile while KlingonHUD draws its title splash or
+// legal screen. The HUD calls Canvas.Reset(), which puts OrgX back to 0, so the shift is applied here.
+ENGINE_API FLOAT GKHGCanvasShiftX = 0.f;
+#endif
 void UCanvas::DrawTile
 (
 	UTexture*		Texture,
@@ -110,6 +115,9 @@ void UCanvas::DrawTile
 {
 	guard(UCanvas::DrawTile);
 	check(Texture);
+#ifdef KHG_FMV
+	X += GKHGCanvasShiftX;   // [KHG] title splash on a centred 4:3 canvas (UGameEngine::Draw)
+#endif
 
 	// Compute clipping region.
 	FLOAT ClipY0 = /*SpanBuffer ? SpanBuffer->StartY :*/ 0;
