@@ -19,7 +19,9 @@ KHGWin.ini   Settings for this port. Created on first run from your retail
              changed, so your retail key bindings and options carry over.
              Delete it to start fresh. Your Khg.ini is never touched.
              Movement is set to W/S (forward/back) and A/D (strafe) with
-             mouse look; this is applied once to an existing KHGWin.ini too.
+             mouse look, and the controller layout below replaces the
+             retail joystick bindings; this is applied once to an existing
+             KHGWin.ini too.
              Change keys in the game's controls menu as usual.
 KHGWin.log   Engine log. Lines tagged "[KHG] MissingNative" list engine
              functions the game uses that the port does not implement yet.
@@ -68,6 +70,33 @@ as the retail game does without the CD. KHGWin.log says which file it plays
   CDMusicPath=..\Music       folder with the track files (relative to System)
 
 The console command "cdtrack 2" plays a track, like in retail.
+
+Keyboard, mouse and controller
+------------------------------
+Keys are read as Windows key codes, like the retail game, so your retail key
+bindings mean the same keys (also on non-US keyboard layouts). The mouse is
+read raw (no Windows pointer speed or acceleration). A controller works as soon
+as it is plugged in, with a twin-stick layout:
+
+  Left stick  move/strafe        Right stick  turn/look
+  RT  fire          LT  alt fire       A  jump        B  duck
+  X   grab          Y   reload         LB/RB  previous/next weapon
+  Start  menu       Back  change HUD   D-pad  inventory (up uses the item)
+  Left stick click  walk               Right stick click  centre view
+
+Rebind controller buttons in the game's controls menu like keys (the menu
+shows them as Joy1, Joy2, ...); stick bindings are JoyX/JoyY (left) and
+JoyU/JoyV (right) in [Engine.Input]. Settings in KHGWin.ini:
+
+  [NSDLDrv.NSDLClient]
+  WindowsKeyCodes=True       False = physical key positions of a US keyboard
+  RawMouseInput=True         False = move the cursor like the retail game, so
+                             Windows pointer speed and acceleration apply
+  UseJoystick=True           False = ignore controllers (the retail default)
+  ScaleRUV=100.0             right stick speed
+  DeadZoneXYZ=0.2            left stick dead zone (0-1)
+  DeadZoneRUV=0.15           right stick dead zone (0-1)
+  InvertV=False              True = push the right stick up to look down
 
 Display
 -------

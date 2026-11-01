@@ -6,6 +6,10 @@
 
 IMPLEMENT_CLASS( UNSDLClient );
 
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+void KHGInstallWindowsKeyHook( UBOOL Enable );   // NSDLViewport.cpp
+#endif
+
 static SDL_GameController* UE1SDL_OpenFirstController()
 {
 	for( INT i = 0; i < SDL_NumJoysticks(); ++i )
@@ -40,6 +44,8 @@ void UNSDLClient::InternalClassInitializer( UClass* Class )
 		new(Class, "BorderlessFullscreen", RF_Public)UBoolProperty(CPP_PROPERTY(BorderlessFullscreen), "Display", CPF_Config );
 		new(Class, "WindowedViewportX", RF_Public)UIntProperty(CPP_PROPERTY(WindowedViewportX),  "Display",  CPF_Config );
 		new(Class, "WindowedViewportY", RF_Public)UIntProperty(CPP_PROPERTY(WindowedViewportY),  "Display",  CPF_Config );
+		new(Class, "WindowsKeyCodes",   RF_Public)UBoolProperty(CPP_PROPERTY(WindowsKeyCodes),   "Input",    CPF_Config ); // [KHG] desktop
+		new(Class, "RawMouseInput",     RF_Public)UBoolProperty(CPP_PROPERTY(RawMouseInput),     "Input",    CPF_Config ); // [KHG] desktop
 		new(Class, "UseJoystick",       RF_Public)UBoolProperty(CPP_PROPERTY(UseJoystick),       "Joystick", CPF_Config );
 		new(Class, "DeadZoneXYZ",       RF_Public)UFloatProperty(CPP_PROPERTY(DeadZoneXYZ),      "Joystick", CPF_Config );
 		new(Class, "DeadZoneRUV",       RF_Public)UFloatProperty(CPP_PROPERTY(DeadZoneRUV),      "Joystick", CPF_Config );
@@ -72,6 +78,8 @@ UNSDLClient::UNSDLClient()
 	DefaultDisplay = 0;
 	BorderlessFullscreen = 0;   // [KHG] retail switches the display mode (exclusive fullscreen)
 	WindowedViewportX = WindowedViewportY = 0;
+	WindowsKeyCodes = true;      // [KHG] retail WinDrv reads Windows key codes
+	RawMouseInput = true;        // [KHG] see UNSDLViewport::SetMouseCapture
 	UseJoystick = true;
 	ScaleXYZ = 100.f;
 	ScaleRUV = 100.f;
@@ -123,7 +131,12 @@ void UNSDLClient::Init( UEngine* InEngine )
 
 	atexit( SDL_Quit );
 
+#ifdef PLATFORM_ANDROID
 	Controller = UE1SDL_OpenFirstController();
+#else
+	if( UseJoystick )
+		Controller = UE1SDL_OpenFirstController();
+#endif
 
 	SDL_GameControllerEventState( SDL_ENABLE );
 
@@ -132,8 +145,47 @@ void UNSDLClient::Init( UEngine* InEngine )
 
 	SDL_GetDesktopDisplayMode( DefaultDisplay, &DefaultDisplayMode );
 
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+	KHGInstallWindowsKeyHook( WindowsKeyCodes );
+#endif
+#ifndef PLATFORM_ANDROID
+	debugf( NAME_Init, "[KHG] Input: keyboard %s, mouse %s", WindowsKeyCodes ? "Windows key codes (retail)" : "SDL scancodes",
+		RawMouseInput ? "raw input" : "cursor movement (retail)" );
+#endif
+
 	unguard;
 }
+
+#ifndef PLATFORM_ANDROID
+//
+// [KHG] Desktop: a controller was plugged in (SDL also reports the ones connected at startup).
+// The first one is used; the next one takes over when it is unplugged.
+//
+void UNSDLClient::KHGControllerAdded( INT DeviceIndex )
+{
+	guard(UNSDLClient::KHGControllerAdded);
+	if( Controller || !UseJoystick || !SDL_IsGameController( DeviceIndex ) )
+		return;
+	Controller = SDL_GameControllerOpen( DeviceIndex );
+	if( Controller )
+		debugf( NAME_Init, "[KHG] Controller connected: %s", SDL_GameControllerName( Controller ) );
+	unguard;
+}
+
+UBOOL UNSDLClient::KHGControllerRemoved( INT InstanceId )
+{
+	guard(UNSDLClient::KHGControllerRemoved);
+	if( !Controller || SDL_JoystickInstanceID( SDL_GameControllerGetJoystick( Controller ) ) != InstanceId )
+		return 0;
+	debugf( NAME_Init, "[KHG] Controller disconnected: %s", SDL_GameControllerName( Controller ) );
+	SDL_GameControllerClose( Controller );
+	Controller = NULL;
+	for( INT i=0; i<SDL_NumJoysticks() && !Controller; i++ )
+		KHGControllerAdded( i );
+	return 1;
+	unguard;
+}
+#endif
 
 //
 // Shut down the platform-specific viewport manager subsystem.

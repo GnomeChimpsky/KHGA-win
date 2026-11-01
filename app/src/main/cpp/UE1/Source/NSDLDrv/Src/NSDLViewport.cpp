@@ -1636,6 +1636,58 @@ static void AndroidUpdateSoftKeyboardTimeout( FLOAT CurTime )
 #endif
 // UE1_ANDROID_SOFT_KEYBOARD_PATCH_END
 
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+/*-----------------------------------------------------------------------------
+	[KHG] Desktop M5: keyboard input with Windows key codes, like the retail WinDrv.dll.
+
+	Retail WinDrv passes the virtual-key code of every WM_KEYDOWN/WM_SYSKEYDOWN/WM_KEYUP/WM_SYSKEYUP
+	straight to the input system as the EInputKey (the IK_ values are the VK codes), so which key is
+	"Tilde" or "Semicolon" follows the Windows keyboard layout, and keys like Pause or NumLock arrive
+	too. With [NSDLDrv.NSDLClient] WindowsKeyCodes=True (the default) we read the same codes from the
+	window messages SDL receives and ignore SDL's own key events, so key bindings saved by the retail
+	game mean the same keys here. False uses SDL scancodes (physical US keyboard positions) instead.
+
+	Like retail UWindowsViewport::UpdateInput, keys the input system thinks are down but that are no
+	longer physically down are released each frame, and on an input reset keys that are physically
+	down are pressed again.
+-----------------------------------------------------------------------------*/
+
+extern "C" __declspec(dllimport) short __stdcall GetKeyState( int vKey );
+extern INT GKHGDemoMode;
+
+struct FKHGWinKeyEvent { BYTE Key; BYTE Press; };
+static FKHGWinKeyEvent GKHGWinKeyEvents[256];
+static INT GKHGWinKeyEventCount = 0;
+UBOOL GKHGWindowsKeyCodes = 0;   // hook installed and in use
+
+// Keys that are not keyboard keys: mouse buttons, joystick buttons/axes/POV, wheel.
+// VK 0xC3-0xDA are the Windows 10 gamepad keys (VK_GAMEPAD_*), which overlap IK_Joy1..IK_Joy16.
+static inline UBOOL KHGIsKeyboardKey( INT Key )
+{
+	return Key >= 8 && Key < 255 && !( Key >= 0xC3 && Key <= 0xDA ) && !( Key >= IK_JoyX && Key <= IK_JoyPovRight );
+}
+
+static void SDLCALL KHGWindowsMessageHook( void* UserData, void* hWnd, unsigned int Msg, Uint64 wParam, Sint64 lParam )
+{
+	// WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
+	if( Msg != 0x0100 && Msg != 0x0101 && Msg != 0x0104 && Msg != 0x0105 )
+		return;
+	if( !KHGIsKeyboardKey( (INT)wParam ) || GKHGWinKeyEventCount >= ARRAY_COUNT(GKHGWinKeyEvents) )
+		return;
+	FKHGWinKeyEvent& E = GKHGWinKeyEvents[GKHGWinKeyEventCount++];
+	E.Key   = (BYTE)wParam;
+	E.Press = ( Msg == 0x0100 || Msg == 0x0104 );
+}
+
+void KHGInstallWindowsKeyHook( UBOOL Enable )
+{
+	SDL_SetWindowsMessageHook( Enable ? KHGWindowsMessageHook : NULL, NULL );
+	GKHGWindowsKeyCodes = Enable;
+	GKHGWinKeyEventCount = 0;
+}
+#endif
+
+
 /*-----------------------------------------------------------------------------
 	UNSDLViewport implementation.
 -----------------------------------------------------------------------------*/
@@ -1649,8 +1701,15 @@ const BYTE UNSDLViewport::MouseButtonMap[6] =
 	/* SDL_BUTTON_LEFT   */ IK_LeftMouse,
 	/* SDL_BUTTON_MIDDLE */ IK_MiddleMouse,
 	/* SDL_BUTTON_RIGHT  */ IK_RightMouse,
+#ifdef PLATFORM_ANDROID
 	/* SDL_BUTTON_X1     */ IK_None,
 	/* SDL_BUTTON_X2     */ IK_None
+#else
+	// [KHG] Desktop: the side buttons as their Windows key codes (VK_XBUTTON1/2 = Unknown05/06).
+	// Retail WinDrv never sent them, so they are unbound unless you bind them.
+	/* SDL_BUTTON_X1     */ IK_Unknown05,
+	/* SDL_BUTTON_X2     */ IK_Unknown06
+#endif
 };
 
 //
@@ -1785,6 +1844,22 @@ void UNSDLViewport::InitKeyMap()
 	KeyMap[SDL_SCANCODE_KP_0] = IK_NumPad0;
 	KeyMap[SDL_SCANCODE_KP_PERIOD] = IK_NumPadPeriod;
 
+#ifndef PLATFORM_ANDROID
+	// [KHG] Desktop: keys the retail game also reads (only used with WindowsKeyCodes=False).
+	KeyMap[SDL_SCANCODE_MINUS] = IK_Minus;
+	KeyMap[SDL_SCANCODE_APOSTROPHE] = IK_SingleQuote;
+	KeyMap[SDL_SCANCODE_PAUSE] = IK_Pause;
+	KeyMap[SDL_SCANCODE_NUMLOCKCLEAR] = IK_NumLock;
+	KeyMap[SDL_SCANCODE_SCROLLLOCK] = IK_ScrollLock;
+	KeyMap[SDL_SCANCODE_KP_ENTER] = IK_Enter;
+	KeyMap[SDL_SCANCODE_KP_PLUS] = IK_GreyPlus;
+	KeyMap[SDL_SCANCODE_KP_MINUS] = IK_GreyMinus;
+	KeyMap[SDL_SCANCODE_KP_MULTIPLY] = IK_GreyStar;
+	KeyMap[SDL_SCANCODE_KP_DIVIDE] = IK_GreySlash;
+	KeyMap[SDL_SCANCODE_LGUI] = IK_Unknown5B;
+	KeyMap[SDL_SCANCODE_RGUI] = IK_Unknown5C;
+	KeyMap[SDL_SCANCODE_APPLICATION] = IK_Unknown5D;
+#endif
 	INIT_KEY_RANGE( SDL_SCANCODE_1,    SDL_SCANCODE_9,    IK_1,       IK_9 );
 	INIT_KEY_RANGE( SDL_SCANCODE_A,    SDL_SCANCODE_Z,    IK_A,       IK_Z );
 	INIT_KEY_RANGE( SDL_SCANCODE_KP_1, SDL_SCANCODE_KP_9, IK_NumPad1, IK_NumPad9 );
@@ -2562,6 +2637,28 @@ void UNSDLViewport::UpdateInput( UBOOL Reset )
 #endif
 	}
 
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+	// [KHG] Retail UWindowsViewport::UpdateInput: release keys that are no longer physically down
+	// (a key-up that went to another window), and on a reset press the ones that still are, so a
+	// key held through a level change or input reset keeps working. Not while replaying a recording.
+	if( GKHGWindowsKeyCodes && Input && GKHGDemoMode != 2 )
+	{
+		Reset = Reset && hWnd && SDL_GetKeyboardFocus() == hWnd;
+		for( INT i=0; i<IK_MAX; i++ )
+		{
+			if( !KHGIsKeyboardKey( i ) )
+				continue;
+			if( !Input->KeyDown( i ) )
+			{
+				if( Reset && ( GetKeyState( i ) & 0x8000 ) )
+					CauseInputEvent( i, IST_Press );
+			}
+			else if( !( GetKeyState( i ) & 0x8000 ) )
+				CauseInputEvent( i, IST_Release );
+		}
+	}
+#endif
+
 	unguard;
 }
 
@@ -2583,6 +2680,13 @@ void UNSDLViewport::SetMouseCapture( UBOOL Capture, UBOOL Clip, UBOOL OnlyFocus 
 	Clip |= Capture;
 
 	// Handle capturing.
+#ifndef PLATFORM_ANDROID
+	// [KHG] Desktop: RawMouseInput=True reads the mouse's own counts (no Windows pointer speed or
+	// acceleration). False moves the hidden cursor and measures how far it went, as retail WinDrv did
+	// (SetCursorPos to the window centre), so Windows pointer speed and "Enhance pointer precision" apply.
+	if( Capture )
+		SDL_SetHint( SDL_HINT_MOUSE_RELATIVE_MODE_WARP, Client->RawMouseInput ? "0" : "1" );
+#endif
 	SDL_SetRelativeMouseMode( (SDL_bool)Capture );
 
 	unguard;
@@ -2865,8 +2969,33 @@ UBOOL UNSDLViewport::TickInput()
 				Client->Engine->Key( this, (EInputKey)E.Key );
 		}
 		InputUpdateTime = CurTime;
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+		GKHGWinKeyEventCount = 0;
+#endif
 		return QuitRequested;
 	}
+
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+	// [KHG] Key messages the Windows hook collected, in the order Windows sent them (see KHGWindowsMessageHook).
+	// Alt+Enter toggles fullscreen and is not passed on, as in retail WinDrv.
+	auto KHGFlushWindowsKeys = [&]()
+	{
+		for( INT i=0; i<GKHGWinKeyEventCount; i++ )
+		{
+			const FKHGWinKeyEvent E = GKHGWinKeyEvents[i];
+			if( E.Press && E.Key == IK_Enter && Input && Input->KeyDown( IK_Alt ) )
+				Exec( "ToggleFullscreen", this );
+			else
+				CauseInputEvent( E.Key, E.Press ? IST_Press : IST_Release );
+		}
+		GKHGWinKeyEventCount = 0;
+	};
+	if( GKHGWindowsKeyCodes )
+	{
+		SDL_PumpEvents();
+		KHGFlushWindowsKeys();
+	}
+#endif
 
 	while( SDL_PollEvent( &Ev ) )
 	{
@@ -2905,12 +3034,20 @@ UBOOL UNSDLViewport::TickInput()
 					AndroidHideSoftKeyboard();
 				}
 #endif
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+				if( GKHGWindowsKeyCodes )
+					break;   // [KHG] keys come from the Windows hook instead
+#endif
 				if( Ev.key.keysym.sym == SDLK_RETURN && (Ev.key.keysym.mod & KMOD_ALT) )
 				{
 					Exec("ToggleFullscreen", this);
 					break;
 				}
 			case SDL_KEYUP:
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+				if( GKHGWindowsKeyCodes )
+					break;
+#endif
 				CauseInputEvent( KeyMap[Ev.key.keysym.scancode], ( Ev.type == SDL_KEYDOWN ) ? IST_Press : IST_Release );
 				break;
 			case SDL_MOUSEBUTTONDOWN:
@@ -3044,6 +3181,30 @@ UBOOL UNSDLViewport::TickInput()
 				CauseInputEvent( IK_JoyPovRight, ( Ev.jhat.value & SDL_HAT_RIGHT ) ? IST_Press : IST_Release );
 				break;
 #endif
+#ifndef PLATFORM_ANDROID
+			case SDL_CONTROLLERDEVICEADDED:
+				Client->KHGControllerAdded( Ev.cdevice.which );
+				break;
+			case SDL_CONTROLLERDEVICEREMOVED:
+				// [KHG] Unplugged: release its buttons and centre its sticks.
+				if( Client->KHGControllerRemoved( Ev.cdevice.which ) && Input )
+				{
+					for( INT i=0; i<SDL_CONTROLLER_BUTTON_MAX; i++ )
+						for( INT m=0; m<2; m++ )
+						{
+							const INT Key = ( m ? JoyButtonMapUI : JoyButtonMap )[i];
+							if( Key >= IK_Joy1 && Key <= IK_JoyPovRight && Input->KeyDown( Key ) )
+								CauseInputEvent( Key, IST_Release );
+						}
+					for( INT i=0; i<SDL_CONTROLLER_AXIS_MAX; i++ )
+					{
+						if( JoyAxisMap[i] < IK_JoyX && JoyAxis[i] >= JoyAxisPressThreshold )
+							CauseInputEvent( JoyAxisMap[i], IST_Release );
+						JoyAxis[i] = 0;
+					}
+				}
+				break;
+#endif
 			case SDL_CONTROLLERAXISMOTION:
 				{
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
@@ -3079,12 +3240,26 @@ UBOOL UNSDLViewport::TickInput()
 							DeadZone = Client->DeadZoneRUV * 32767.f;
 						if ( Abs(NewValue) < DeadZone )
 							NewValue = 0;
+#ifndef PLATFORM_ANDROID
+						// [KHG] Desktop: rescale outside the dead zone like retail WinDrv JoystickInputEvent,
+						// so the stick starts from zero at the dead zone edge instead of jumping.
+						else if ( DeadZone > 0 && DeadZone < 32767 )
+							NewValue = ( NewValue > 0 ? 1 : -1 ) * (INT)( (FLOAT)( Abs(NewValue) - DeadZone ) * 32767.f / (FLOAT)( 32767 - DeadZone ) );
+#endif
 					}
 					JoyAxis[Ev.caxis.axis] = NewValue;
 				}
 				break;
 #ifndef PLATFORM_ANDROID
 			case SDL_WINDOWEVENT:
+				// [KHG] Desktop: like retail WM_KILLFOCUS/WM_SETFOCUS, forget the held keys and buttons when the
+				// window loses or gets the keyboard focus (on getting it, keys still held are pressed again).
+				if( ( Ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST || Ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED )
+				 && hWnd && Ev.window.windowID == SDL_GetWindowID( hWnd ) && Input && Actor )
+				{
+					Input->ResetInput();
+					break;
+				}
 				// [KHG] Desktop: the user resized the window; render at its new size and remember it.
 				if( Ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && hWnd && Ev.window.windowID == SDL_GetWindowID( hWnd )
 				 && !(SDL_GetWindowFlags( hWnd ) & SDL_WINDOW_FULLSCREEN) && Client->FullscreenViewport != this
@@ -3123,6 +3298,10 @@ UBOOL UNSDLViewport::TickInput()
 				break;
 		}
 	}
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+	if( GKHGWindowsKeyCodes )
+		KHGFlushWindowsKeys();
+#endif
 
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 	if( bAndroidNativeController )

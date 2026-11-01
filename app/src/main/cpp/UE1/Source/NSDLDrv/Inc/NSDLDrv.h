@@ -111,6 +111,8 @@ class NSDLDRV_API UNSDLClient : public UClient, public FNotifyHook
 	UBOOL BorderlessFullscreen;   // [KHG] desktop: fullscreen as a borderless desktop-sized window instead of a display mode change
 	INT WindowedViewportX;        // [KHG] desktop: window size when not fullscreen (0 = ViewportX/Y, shrunk to fit the desktop)
 	INT WindowedViewportY;
+	UBOOL WindowsKeyCodes;        // [KHG] desktop (Windows): keys as Windows key codes like retail WinDrv; False = SDL scancodes
+	UBOOL RawMouseInput;          // [KHG] desktop: raw mouse counts; False = cursor movement like retail WinDrv
 	UBOOL UseJoystick;
 	UBOOL InvertY;
 	UBOOL InvertV;
@@ -154,6 +156,10 @@ class NSDLDRV_API UNSDLClient : public UClient, public FNotifyHook
 	void TryRenderDevice( UViewport* Viewport, const char* ClassName, UBOOL Fullscreen );
 	const TArray<SDL_Rect>& GetDisplayResolutions();
 	inline SDL_GameController* GetController() { return Controller; }
+#ifndef PLATFORM_ANDROID
+	void KHGControllerAdded( INT DeviceIndex );      // [KHG] desktop controller hot-plug
+	UBOOL KHGControllerRemoved( INT InstanceId );    // returns 1 if it was the controller in use
+#endif
 	inline const SDL_DisplayMode& GetDefaultDisplayMode() const { return DefaultDisplayMode; }
 
 private:

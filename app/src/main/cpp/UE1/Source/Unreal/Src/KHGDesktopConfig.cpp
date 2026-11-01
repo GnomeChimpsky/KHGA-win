@@ -145,21 +145,63 @@ static bool WriteText( const std::string& Path, const std::string& Text )
 
 static std::string GConfigStatus;
 
-// WASD movement with mouse look (Galvatron, 2026-11-01). Applied when KHGWin.ini is created, and
-// once to an existing KHGWin.ini that predates it (marked by [KHGWin] InputDefaults). Only these
-// keys change; all other bindings stay as in the retail ini. Retail Default.ini binds S to
-// "Axis aUp" (swim/fly up); Space (Jump) and C (Duck) already do that.
-static const int kInputDefaultsVersion = 1;
-static const char* const kInputDefaults =
+// Input defaults that differ from the retail ini, applied when KHGWin.ini is created and once to an
+// existing KHGWin.ini whose [KHGWin] InputDefaults is lower than the step's version. Only the listed
+// keys change; all other bindings stay as in the retail ini.
+//
+// 1: WASD movement with mouse look (Galvatron, 2026-11-01). Retail Default.ini binds S to
+//    "Axis aUp" (swim/fly up); Space (Jump) and C (Duck) already do that.
+// 2: twin-stick gamepad layout (M5, Galvatron's choice 2026-11-01). Retail ships UseJoystick=False and
+//    Joy bindings made for 1998 pads (A fire, triggers on inventory, no menu button). SDL buttons:
+//    A Joy1, B Joy2, X Joy3, Y Joy4, Back Joy5, Guide Joy6, Start Joy7, stick clicks Joy8/Joy9,
+//    LB Joy10, RB Joy11, LT Joy12, RT Joy13, d-pad JoyPov*; left stick JoyX/JoyY, right stick JoyU/JoyV.
+//    Right stick full tilt turns at 2x the keyboard turn rate (aBaseX 6000 at ScaleRUV=100) and looks
+//    up/down at 1.5x the keyboard look rate.
+struct FKHGInputDefaults { int Version; const char* Ini; };
+static const FKHGInputDefaults kInputDefaults[] =
+{
+	{ 1,
 	"[Engine.Input]\r\n"
 	"W=MoveForward\r\n"
 	"S=MoveBackward\r\n"
 	"A=StrafeLeft\r\n"
 	"D=StrafeRight\r\n"
 	"[Engine.PlayerPawn]\r\n"
-	"bAlwaysMouseLook=True\r\n"
-	"[KHGWin]\r\n"
-	"InputDefaults=1\r\n";
+	"bAlwaysMouseLook=True\r\n" },
+	{ 2,
+	"[Engine.Input]\r\n"
+	"Joy1=Jump\r\n"
+	"Joy2=Duck\r\n"
+	"Joy3=Grab\r\n"
+	"Joy4=ReloadWeapon\r\n"
+	"Joy5=ChangeHud\r\n"
+	"Joy6=\r\n"
+	"Joy7=ShowMenu\r\n"
+	"Joy8=Walking\r\n"
+	"Joy9=CenterView\r\n"
+	"Joy10=PrevWeapon\r\n"
+	"Joy11=NextWeapon\r\n"
+	"Joy12=AltFire\r\n"
+	"Joy13=Fire\r\n"
+	"JoyX=Axis aStrafe Speed=2\r\n"
+	"JoyY=Axis aBaseY Speed=2\r\n"
+	"JoyU=Axis aBaseX Speed=5\r\n"
+	"JoyV=Axis aLookUp Speed=-2.5\r\n"
+	"JoyPovUp=InventoryActivate\r\n"
+	"JoyPovDown=\r\n"
+	"JoyPovLeft=InventoryPrevious\r\n"
+	"JoyPovRight=InventoryNext\r\n"
+	"[NSDLDrv.NSDLClient]\r\n"
+	"UseJoystick=True\r\n"
+	"ScaleXYZ=1000.0\r\n"
+	"ScaleRUV=100.0\r\n"
+	"DeadZoneXYZ=0.2\r\n"
+	"DeadZoneRUV=0.15\r\n" },
+};
+static const int kInputDefaultsVersion = 2;
+
+// Merges every step newer than FromVersion into Ini and records the new version.
+static std::string ApplyInputDefaults( std::string Ini, int FromVersion );
 
 static int InputDefaultsIn( const std::string& Ini )
 {
@@ -174,6 +216,21 @@ static int InputDefaultsIn( const std::string& Ini )
 	return 0;
 }
 
+} // namespace
+
+std::string KHGMergeIni( const std::string& Base, const std::string& Overlay );
+
+namespace
+{
+static std::string ApplyInputDefaults( std::string Ini, int FromVersion )
+{
+	for( const FKHGInputDefaults& D : kInputDefaults )
+		if( D.Version > FromVersion )
+			Ini = KHGMergeIni( Ini, D.Ini );
+	char Mark[64];
+	snprintf( Mark, sizeof(Mark), "[KHGWin]\r\nInputDefaults=%d\r\n", kInputDefaultsVersion );
+	return KHGMergeIni( Ini, Mark );
+}
 } // namespace
 
 std::string KHGMergeIni( const std::string& Base, const std::string& Overlay )
@@ -242,12 +299,14 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	if( ReadText( Target, Existing ) && !Existing.empty() )
 	{
 		GConfigStatus = "using existing " + Target;
-		if( InputDefaultsIn( Existing ) < kInputDefaultsVersion )
+		const int Have = InputDefaultsIn( Existing );
+		if( Have < kInputDefaultsVersion )
 		{
-			if( WriteText( Target, KHGMergeIni( Existing, kInputDefaults ) ) )
-				GConfigStatus += " (applied WASD movement and mouse look once)";
+			if( WriteText( Target, ApplyInputDefaults( Existing, Have ) ) )
+				GConfigStatus += Have < 1 ? " (applied WASD movement, mouse look and the gamepad layout once)"
+				                          : " (applied the gamepad layout once)";
 			else
-				GConfigStatus += " (WARNING: could not apply WASD defaults)";
+				GConfigStatus += " (WARNING: could not apply the input defaults)";
 		}
 		return;
 	}
@@ -274,7 +333,7 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	if( BaseName.empty() )
 		Base.clear();
 
-	if( !WriteText( Target, KHGMergeIni( KHGMergeIni( Base, Overlay ), kInputDefaults ) ) )
+	if( !WriteText( Target, ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 ) ) )
 	{
 		GConfigStatus = "WARNING: could not write " + Target;
 		return;
