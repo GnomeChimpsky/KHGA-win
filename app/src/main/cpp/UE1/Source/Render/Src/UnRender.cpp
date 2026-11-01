@@ -756,7 +756,11 @@ FSceneNode* URender::CreateChildFrame
 	World polygon rasterizer.
 -----------------------------------------------------------------------------*/
 
-FRasterSpan HackRaster[1200];//max y res 1200!!
+// [KHG] Was [1200] ("max y res 1200"). Taller views (1440p, 2160p) only rasterized rows 0-1199
+// into the occlusion span buffer, so floor and wall polygons in the bottom rows were culled at
+// random: black triangles along the bottom edge that popped in and out with the view. 8192 rows
+// covers every display; the cap in SetupRaster stays as a guard.
+FRasterSpan HackRaster[8192];
 INT RasterStartY, RasterEndY, RasterStartX, RasterEndX;
 static UBOOL SetupRaster( FTransform** Pts, INT NumPts, FSpanBuffer* Span, INT EndY )
 {
