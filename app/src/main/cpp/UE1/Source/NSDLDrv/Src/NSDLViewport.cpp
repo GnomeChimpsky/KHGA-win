@@ -2950,8 +2950,12 @@ UBOOL UNSDLViewport::TickInput()
 
 	SDL_Event Ev;
 	INT Tmp;
-	const FLOAT CurTime = appSeconds();
-	const FLOAT DeltaTime = CurTime - InputUpdateTime;
+	// [KHG] Keep the clock in double precision: appSeconds() counts from system start, and as a FLOAT
+	// after a few days of uptime it only changes in steps of 1/32 s or more, so most frames got a
+	// DeltaTime of 0 and the next one a big jump (stick movement came in hops). Clamped for the first
+	// frame and for long stalls.
+	const DOUBLE CurTime = appSeconds();
+	const FLOAT DeltaTime = (FLOAT)Clamp( CurTime - InputUpdateTime, 0.0, 0.1 );
 #ifdef __ANDROID__
 	// ANDROID_SOFT_KEYBOARD_V5_MENUTYPING_TICK
 	UE1Android_UpdateSoftKeyboardForMenuTyping( (UObject*)Console, SizeX, SizeY );
