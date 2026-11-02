@@ -4,7 +4,7 @@ rem and saves each log as builds\tools\MapTest-<build>.log.
 rem Double-click to test the build named below, or run MapTest.bat <commit> for another one.
 rem Copies only the KHGWin files (KHGWin*, OpenAL32.dll, FFmpeg DLLs) into Installed\System; no retail file is touched.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=c9eecfa
+if "%BUILD%"=="" set BUILD=dc433dc
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 for %%A in (win64 win32) do (
