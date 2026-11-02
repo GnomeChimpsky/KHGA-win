@@ -240,6 +240,8 @@ CORE_API UBOOL appSaveStringToFile( const FString& Str, const char* Filename );
 CORE_API void appSetCmdLine( INT Argc, const char** Argv );
 CORE_API const char* appCmdLine();
 CORE_API const char* appBaseDir();
+CORE_API const char* appUserDir();            // [KHG] folder of the ini, log and saves (default: appBaseDir())
+CORE_API void appSetUserDir( const char* Dir ); // [KHG] with trailing separator; call before appInit()
 CORE_API const char* appPackage();
 
 /*-----------------------------------------------------------------------------

@@ -29,7 +29,7 @@ echo Step %3 ...
 taskkill /f /im KHGWin.exe >nul 2>&1
 xcopy /y /e /q "%TOOLS%..\%BUILD%-%1\*" "%SYS%\" >nul || echo Could not copy %BUILD%-%1 into Installed\System.
 pushd "%SYS%"
-start "" /wait KHGWin.exe %2 -khgsavedir=..\..\builds\tools\TestSaves
+start "" /wait KHGWin.exe %2 -khgsavedir=..\..\builds\tools\TestSaves LOG=KHGWin.log
 popd
 copy /y "%SYS%\KHGWin.log" "%TOOLS%SaveTest-%BUILD%-%3.log" >nul
 goto :eof

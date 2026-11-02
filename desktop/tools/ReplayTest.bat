@@ -26,7 +26,7 @@ echo Replaying with %BUILD%-%1 ...
 taskkill /f /im KHGWin.exe >nul 2>&1
 xcopy /y /e /q "%TOOLS%..\%BUILD%-%1\*" "%SYS%\" >nul || echo Could not copy %BUILD%-%1 into Installed\System.
 pushd "%SYS%"
-start "" /wait KHGWin.exe M02.unr -khgreplay=..\..\builds\tools\Demo\M02.txt
+start "" /wait KHGWin.exe M02.unr -khgreplay=..\..\builds\tools\Demo\M02.txt LOG=KHGWin.log
 popd
 copy /y "%SYS%\KHGWin.log" "%TOOLS%Replay-%BUILD%-%1.log" >nul
 goto :eof

@@ -8,23 +8,50 @@ Install
 -------
 1. Copy everything in this folder into the System folder of your retail install
    (the folder that contains Khg.exe). Nothing in it replaces a retail file.
+   Installs under Program Files work too.
 2. Run KHGWin.exe.
 
 Requirements: Windows 10 or 11 and a GPU with a Vulkan driver.
 
-Files it creates (all in the System folder)
--------------------------------------------
-KHGWin.ini   Settings for this port. Created on first run from your retail
-             Default.ini (or Khg.ini) with only the video/audio driver lines
-             changed, so your retail key bindings and options carry over.
-             Delete it to start fresh. Your Khg.ini is never touched.
-             Movement is set to W/S (forward/back) and A/D (strafe) with
-             mouse look, and the controller layout below replaces the
-             retail joystick bindings; this is applied once to an existing
-             KHGWin.ini too.
-             Change keys in the game's controls menu as usual.
-KHGWin.log   Engine log. Lines tagged "[KHG] MissingNative" list engine
-             functions the game uses that the port does not implement yet.
+Your settings and saves
+-----------------------
+KHGWin keeps everything it writes in your Saved Games folder:
+
+  C:\Users\<you>\Saved Games\Klingon Honor Guard\
+    KHGWin.ini   settings for this port
+    KHGWin.log   engine log. Lines tagged "[KHG] MissingNative" list engine
+                 functions the game uses that the port does not implement yet
+    Save\        saved games (Save0.usa ... Save8.usa, like the retail game)
+    Shot0000.bmp screenshots (F9 / "shot")
+
+so the install folder is never written to (it can stay in Program Files).
+
+The first time it starts, KHGWin sets this folder up from your install:
+- KHGWin.ini is copied from the System folder if an older KHGWin made one
+  there; otherwise it is created from your retail Default.ini (or Khg.ini)
+  with only the video/audio driver lines changed, so your retail key
+  bindings and options carry over. Your Khg.ini is never touched.
+- Your retail saves are copied from the install's Save folder (and from
+  Windows' VirtualStore copy of it, where the retail game's saves end up
+  when it is installed under Program Files), with their names from Khg.ini,
+  so the load menu shows them. The originals stay where they are; saves
+  you make in KHGWin from then on are separate from the retail game's.
+KHGWin.log lists what was copied ("[KHG] Migration"). To redo it, delete
+the Klingon Honor Guard folder in Saved Games.
+
+Save compatibility (64-bit and 32-bit KHGWin, the retail game) is listed in
+docs/Saves.md in the source.
+
+Portable mode: put an empty file named portable.txt next to KHGWin.exe
+(or start it with -portable) and KHGWin keeps KHGWin.ini, KHGWin.log and
+screenshots in the System folder and saves in the install's Save folder,
+shared with the retail game, the way the retail game does it.
+-userdir=<folder> uses another folder instead of Saved Games.
+
+Movement is set to W/S (forward/back) and A/D (strafe) with mouse look,
+and the controller layout below replaces the retail joystick bindings;
+this is applied once to an existing KHGWin.ini too. Change keys in the
+game's controls menu as usual. Delete KHGWin.ini to start fresh.
 
 Startup
 -------

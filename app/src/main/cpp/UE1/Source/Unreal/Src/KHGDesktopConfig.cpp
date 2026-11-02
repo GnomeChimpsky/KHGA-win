@@ -2,6 +2,8 @@
 	KHGDesktopConfig.cpp: first-run ini for the desktop build. See KHGDesktopConfig.h.
 =============================================================================*/
 
+#include <windows.h>   // before Core.h, like SDLLaunch.cpp
+#include <shlobj.h>
 #include "KHGDesktopConfig.h"
 #include <stdlib.h>
 
@@ -291,13 +293,318 @@ std::string KHGMergeIni( const std::string& Base, const std::string& Overlay )
 	return Write( Out );
 }
 
+namespace
+{
+
+enum EUserDirMode { UDM_Portable, UDM_SavedGames, UDM_CommandLine };
+static EUserDirMode GUserDirMode = UDM_Portable;
+static std::string GUserDirStatus;
+static std::vector<std::string> GMigrationLog;
+
+static bool FileExists( const std::string& Path )
+{
+	const DWORD A = GetFileAttributesA( Path.c_str() );
+	return A != INVALID_FILE_ATTRIBUTES && !( A & FILE_ATTRIBUTE_DIRECTORY );
+}
+
+static bool DirExists( const std::string& Path )
+{
+	const DWORD A = GetFileAttributesA( Path.c_str() );
+	return A != INVALID_FILE_ATTRIBUTES && ( A & FILE_ATTRIBUTE_DIRECTORY );
+}
+
+static bool IsAbsolute( const std::string& P )
+{
+	return ( P.size() >= 2 && P[1] == ':' ) || ( !P.empty() && ( P[0] == '\\' || P[0] == '/' ) );
+}
+
+static std::string WithSlash( std::string P )
+{
+	if( !P.empty() && P.back() != '\\' && P.back() != '/' )
+		P += '\\';
+	return P;
+}
+
+// Full path with ".." resolved; Rel is relative to Base unless absolute.
+static std::string FullPath( const std::string& Base, const std::string& Rel )
+{
+	const std::string In = IsAbsolute( Rel ) ? Rel : Base + Rel;
+	char Out[MAX_PATH * 2];
+	const DWORD N = GetFullPathNameA( In.c_str(), sizeof(Out), Out, NULL );
+	return ( N > 0 && N < sizeof(Out) ) ? std::string( Out ) : In;
+}
+
+// Wide path -> ANSI path the engine's char file functions can open; falls back to the 8.3 short name
+// (the folder must exist) when the user name has characters outside the ANSI code page.
+static bool ToAnsiPath( const std::wstring& W, std::string& Out )
+{
+	for( int Pass = 0; Pass < 2; Pass++ )
+	{
+		std::wstring Path = W;
+		if( Pass == 1 )
+		{
+			wchar_t Short[MAX_PATH * 2];
+			const DWORD N = GetShortPathNameW( W.c_str(), Short, MAX_PATH * 2 );
+			if( N == 0 || N >= MAX_PATH * 2 )
+				return false;
+			Path = Short;
+		}
+		BOOL Lossy = FALSE;
+		char Buf[MAX_PATH * 2];
+		const int N = WideCharToMultiByte( CP_ACP, WC_NO_BEST_FIT_CHARS, Path.c_str(), -1, Buf, sizeof(Buf), NULL, &Lossy );
+		if( N > 0 && !Lossy )
+		{
+			Out = Buf;
+			return true;
+		}
+	}
+	return false;
+}
+
+// <Saved Games>\Klingon Honor Guard\, created if needed.
+static bool SavedGamesDir( std::string& Out )
+{
+	static const GUID SavedGames = { 0x4c5c32ff, 0xbb9d, 0x43b0, { 0xb5, 0xb4, 0x2d, 0x72, 0xe5, 0x4e, 0xaa, 0xa4 } };
+	PWSTR Known = NULL;
+	std::wstring Dir;
+	if( SUCCEEDED( SHGetKnownFolderPath( SavedGames, KF_FLAG_CREATE, NULL, &Known ) ) && Known )
+		Dir = Known;
+	CoTaskMemFree( Known );
+	if( Dir.empty() )
+	{
+		const wchar_t* Profile = _wgetenv( L"USERPROFILE" );
+		if( !Profile )
+			return false;
+		Dir = std::wstring( Profile ) + L"\\Saved Games";
+		CreateDirectoryW( Dir.c_str(), NULL );
+	}
+	Dir += L"\\Klingon Honor Guard";
+	CreateDirectoryW( Dir.c_str(), NULL );
+	if( !ToAnsiPath( Dir, Out ) || !DirExists( Out ) )
+		return false;
+	Out = WithSlash( Out );
+	return true;
+}
+
+// Where Windows redirects writes a non-elevated program makes under Program Files:
+// %LOCALAPPDATA%\VirtualStore\<path without the drive>. Empty if not available.
+static std::string VirtualStorePath( const std::string& Full )
+{
+	const char* Local = getenv( "LOCALAPPDATA" );
+	if( !Local || Full.size() < 3 || Full[1] != ':' )
+		return std::string();
+	return WithSlash( Local ) + "VirtualStore\\" + Full.substr( 3 );
+}
+
+// Value of Section/Key in an ini text, or empty.
+static std::string IniValue( const std::string& Ini, const char* Section, const char* Key )
+{
+	for( const FIniSection& S : Parse( Ini ) )
+		if( SameName( S.Name, Section ) )
+			for( const FIniLine& L : S.Lines )
+				if( SameName( KeyOf( L.Text ), Key ) )
+				{
+					const size_t Eq = L.Text.find( '=' );
+					return Trim( L.Text.substr( Eq + 1 ) );
+				}
+	return std::string();
+}
+
+static bool IsRetailDefaultPath( const std::string& P, const char* Name )
+{
+	std::string N = Trim( P );
+	for( char& C : N )
+		if( C == '/' )
+			C = '\\';
+	while( !N.empty() && N.back() == '\\' )
+		N.pop_back();
+	return SameName( N, std::string( "..\\" ) + Name );
+}
+
+// The [Klingons.KlingonMenuSlot] section (the save slot names the load/save menus show) as an ini
+// overlay, or empty when Ini has none.
+static std::string SlotSection( const std::string& Ini )
+{
+	for( const FIniSection& S : Parse( Ini ) )
+		if( SameName( S.Name, "Klingons.KlingonMenuSlot" ) )
+		{
+			std::string Out = "[Klingons.KlingonMenuSlot]\r\n";
+			bool Any = false;
+			for( const FIniLine& L : S.Lines )
+				if( !KeyOf( L.Text ).empty() )
+				{
+					Out += Trim( L.Text ) + "\r\n";
+					Any = true;
+				}
+			return Any ? Out : std::string();
+		}
+	return std::string();
+}
+
+// The retail Khg.ini as the retail game sees it: its VirtualStore copy wins if there is one.
+static bool ReadRetailIni( const std::string& BaseDir, std::string& Out, std::string& Where )
+{
+	static const char* Names[] = { "Khg.ini", "KHG.INI", "khg.ini" };
+	for( const char* Name : Names )
+	{
+		const std::string Full = FullPath( BaseDir, Name );
+		const std::string Virtual = VirtualStorePath( Full );
+		if( !Virtual.empty() && ReadText( Virtual, Out ) )
+		{
+			Where = Virtual;
+			return true;
+		}
+		if( ReadText( Full, Out ) )
+		{
+			Where = Full;
+			return true;
+		}
+	}
+	return false;
+}
+
+// Copies every *.usa in From to To that To doesn't have yet. Returns how many were copied.
+static int CopySaves( const std::string& From, const std::string& To )
+{
+	int Copied = 0;
+	WIN32_FIND_DATAA Found;
+	HANDLE H = FindFirstFileA( ( WithSlash( From ) + "*.usa" ).c_str(), &Found );
+	if( H == INVALID_HANDLE_VALUE )
+		return 0;
+	do
+	{
+		if( Found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+			continue;
+		if( CopyFileA( ( WithSlash( From ) + Found.cFileName ).c_str(), ( WithSlash( To ) + Found.cFileName ).c_str(), TRUE ) )
+			Copied++;
+	} while( FindNextFileA( H, &Found ) );
+	FindClose( H );
+	return Copied;
+}
+
+// First run in the Saved Games folder: brings the saves of the install along. Returns the ini with the
+// slot names added when it had none.
+static std::string MigrateSaves( const std::string& BaseDir, const std::string& UserDir, std::string Ini, const std::string& OldPortIni )
+{
+	std::string RetailIni, RetailWhere;
+	const bool HaveRetail = ReadRetailIni( BaseDir, RetailIni, RetailWhere );
+
+	// Save folders the install used: the retail one (and its VirtualStore copy) and the port's old one.
+	std::vector<std::string> From;
+	auto AddFrom = [&]( const std::string& SavePath )
+	{
+		if( SavePath.empty() )
+			return;
+		const std::string Full = FullPath( BaseDir, SavePath );
+		for( const std::string& Dir : { VirtualStorePath( Full ), Full } )
+		{
+			bool Known = Dir.empty();
+			for( const std::string& F : From )
+				Known = Known || SameName( F, Dir );
+			if( !Known && DirExists( Dir ) )
+				From.push_back( Dir );
+		}
+	};
+	AddFrom( HaveRetail ? ( IniValue( RetailIni, "Core.System", "SavePath" ).empty() ? std::string( "..\\Save" ) : IniValue( RetailIni, "Core.System", "SavePath" ) ) : std::string( "..\\Save" ) );
+	AddFrom( IniValue( OldPortIni, "Core.System", "SavePath" ) );
+
+	const std::string Dest = UserDir + "Save";
+	CreateDirectoryA( Dest.c_str(), NULL );
+	int Total = 0;
+	for( const std::string& Dir : From )
+	{
+		const int N = CopySaves( Dir, Dest );
+		Total += N;
+		GMigrationLog.push_back( "copied " + std::to_string( N ) + " save file(s) from " + Dir + " to " + Dest );
+	}
+	if( From.empty() )
+		GMigrationLog.push_back( "no Save folder found in the install, nothing to copy" );
+
+	// Slot names live in the ini. The port's own old ini wins (its saves shared the retail folder).
+	if( Total > 0 && SlotSection( Ini ).empty() )
+	{
+		std::string Slots = SlotSection( OldPortIni ), Src = "the old System\\KHGWin.ini";
+		if( Slots.empty() && HaveRetail )
+		{
+			Slots = SlotSection( RetailIni );
+			Src = RetailWhere;
+		}
+		if( !Slots.empty() )
+		{
+			Ini = KHGMergeIni( Ini, Slots );
+			GMigrationLog.push_back( "save slot names taken from " + Src );
+		}
+	}
+	return Ini;
+}
+
+} // namespace
+
+std::string KHGDesktopChooseUserDir( const char* InBaseDir, const char* CmdLine )
+{
+	const std::string BaseDir = InBaseDir ? InBaseDir : "";
+	std::string Dir;
+	char Arg[1024] = "";
+	if( ParseParam( CmdLine, "PORTABLE" ) || FileExists( BaseDir + "portable.txt" ) )
+	{
+		GUserDirMode = UDM_Portable;
+		GUserDirStatus = ParseParam( CmdLine, "PORTABLE" ) ? "portable (-portable): ini, log and saves in the install"
+		                                                 : "portable (portable.txt): ini, log and saves in the install";
+	}
+	else if( Parse( CmdLine, "USERDIR=", Arg, ARRAY_COUNT(Arg) ) && Arg[0] )
+	{
+		Dir = WithSlash( FullPath( BaseDir, Arg ) );
+		CreateDirectoryA( Dir.c_str(), NULL );
+		if( DirExists( Dir ) )
+		{
+			GUserDirMode = UDM_CommandLine;
+			GUserDirStatus = "user folder " + Dir + " (-userdir)";
+		}
+		else
+		{
+			GUserDirMode = UDM_Portable;
+			GUserDirStatus = "WARNING: could not create -userdir folder " + Dir + "; running portable";
+			Dir.clear();
+		}
+	}
+	else if( SavedGamesDir( Dir ) )
+	{
+		GUserDirMode = UDM_SavedGames;
+		GUserDirStatus = "user folder " + Dir;
+	}
+	else
+	{
+		GUserDirMode = UDM_Portable;
+		GUserDirStatus = "WARNING: no usable Saved Games folder; running portable";
+		Dir.clear();
+	}
+	if( GUserDirMode == UDM_Portable )
+		Dir = BaseDir;
+	appSetUserDir( GUserDirMode == UDM_Portable ? "" : Dir.c_str() );
+	return Dir;
+}
+
 void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 {
 	const std::string Dir = BaseDir ? BaseDir : "";
-	const std::string Target = Dir + Package + ".ini";
+	const std::string UserDir = appUserDir();
+	const std::string Target = UserDir + Package + ".ini";
 	std::string Existing;
 	if( ReadText( Target, Existing ) && !Existing.empty() )
 	{
+		// Portable: the saves are the retail Save folder's, so show the retail slot names until the port
+		// writes its own.
+		if( GUserDirMode == UDM_Portable && SlotSection( Existing ).empty() )
+		{
+			std::string RetailIni, Where;
+			if( ReadRetailIni( Dir, RetailIni, Where ) && !SlotSection( RetailIni ).empty()
+			 && IsRetailDefaultPath( IniValue( Existing, "Core.System", "SavePath" ), "Save" )
+			 && WriteText( Target, KHGMergeIni( Existing, SlotSection( RetailIni ) ) ) )
+			{
+				ReadText( Target, Existing );
+				GMigrationLog.push_back( "save slot names taken from " + Where + " (shared retail Save folder)" );
+			}
+		}
 		GConfigStatus = "using existing " + Target;
 		const int Have = InputDefaultsIn( Existing );
 		if( Have < kInputDefaultsVersion )
@@ -308,6 +615,22 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 			else
 				GConfigStatus += " (WARNING: could not apply the input defaults)";
 		}
+		return;
+	}
+
+	// First run in the Saved Games folder: carry over the port's ini from the install, if any.
+	std::string OldPortIni;
+	if( GUserDirMode == UDM_SavedGames && ReadText( Dir + Package + ".ini", OldPortIni ) && !OldPortIni.empty() )
+	{
+		const int Have = InputDefaultsIn( OldPortIni );
+		std::string Ini = Have < kInputDefaultsVersion ? ApplyInputDefaults( OldPortIni, Have ) : OldPortIni;
+		Ini = MigrateSaves( Dir, UserDir, Ini, OldPortIni );
+		if( !WriteText( Target, Ini ) )
+		{
+			GConfigStatus = "WARNING: could not write " + Target;
+			return;
+		}
+		GConfigStatus = "created " + Target + " from " + Dir + Package + ".ini (moved to the user folder; the old file is left as it was)";
 		return;
 	}
 
@@ -333,7 +656,19 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	if( BaseName.empty() )
 		Base.clear();
 
-	if( !WriteText( Target, ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 ) ) )
+	std::string Ini = ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 );
+	if( GUserDirMode == UDM_SavedGames )
+		Ini = MigrateSaves( Dir, UserDir, Ini, std::string() );
+	else if( GUserDirMode == UDM_Portable && IsRetailDefaultPath( IniValue( Ini, "Core.System", "SavePath" ), "Save" ) )
+	{
+		std::string RetailIni, Where;
+		if( ReadRetailIni( Dir, RetailIni, Where ) && !SlotSection( RetailIni ).empty() && SlotSection( Ini ).empty() )
+		{
+			Ini = KHGMergeIni( Ini, SlotSection( RetailIni ) );
+			GMigrationLog.push_back( "save slot names taken from " + Where + " (shared retail Save folder)" );
+		}
+	}
+	if( !WriteText( Target, Ini ) )
 	{
 		GConfigStatus = "WARNING: could not write " + Target;
 		return;
@@ -345,6 +680,43 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 
 void KHGDesktopLogConfigStatus()
 {
+	if( !GUserDirStatus.empty() )
+		debugf( NAME_Init, "[KHG] User files: %s", GUserDirStatus.c_str() );
 	if( !GConfigStatus.empty() )
 		debugf( NAME_Init, "[KHG] Desktop config: %s", GConfigStatus.c_str() );
+	for( const std::string& L : GMigrationLog )
+		debugf( NAME_Init, "[KHG] Migration: %s", L.c_str() );
+}
+
+void KHGDesktopApplyUserPaths()
+{
+	if( GUserDirMode == UDM_Portable || !GSys )
+		return;
+	const std::string UserDir = appUserDir();
+	struct { char* Path; const char* Name; } Paths[] = { { GSys->SavePath, "Save" }, { GSys->CachePath, "Cache" } };
+	for( auto& P : Paths )
+	{
+		if( !IsRetailDefaultPath( P.Path, P.Name ) )
+		{
+			debugf( NAME_Init, "[KHG] %s folder: %s (set in the ini)", P.Name, P.Path );
+			continue;
+		}
+		std::string Full = UserDir + P.Name;
+		CreateDirectoryA( Full.c_str(), NULL );
+		if( Full.size() >= sizeof(GSys->SavePath) )
+		{
+			// SavePath/CachePath hold 95 characters: try the 8.3 short name.
+			char Short[MAX_PATH];
+			const DWORD N = GetShortPathNameA( Full.c_str(), Short, sizeof(Short) );
+			if( N > 0 && N < sizeof(GSys->SavePath) )
+				Full = Short;
+		}
+		if( Full.size() < sizeof(GSys->SavePath) )
+		{
+			appStrcpy( P.Path, Full.c_str() );
+			debugf( NAME_Init, "[KHG] %s folder: %s", P.Name, P.Path );
+		}
+		else
+			debugf( NAME_Init, "[KHG] WARNING: %s folder path too long (%s); using %s", P.Name, Full.c_str(), P.Path );
+	}
 }

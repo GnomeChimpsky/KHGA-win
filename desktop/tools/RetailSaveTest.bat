@@ -12,7 +12,7 @@ for %%A in (win64 win32) do (
     taskkill /f /im KHGWin.exe >nul 2>&1
     xcopy /y /e /q "%TOOLS%..\%BUILD%-%%A\*" "%SYS%\" >nul || echo Could not copy %BUILD%-%%A into Installed\System.
     pushd "%SYS%"
-    start "" /wait KHGWin.exe -khgloadsave=0 -khgsavedir=..\..\builds\tools\RetailSave
+    start "" /wait KHGWin.exe -khgloadsave=0 -khgsavedir=..\..\builds\tools\RetailSave LOG=KHGWin.log
     popd
     copy /y "%SYS%\KHGWin.log" "%TOOLS%RetailSaveTest-%BUILD%-%%A.log" >nul
   ) else (

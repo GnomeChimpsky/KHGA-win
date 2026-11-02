@@ -12,9 +12,24 @@
 
 #include <string>
 
-// Builds <BaseDir><Package>.ini if it doesn't exist yet. Call before appInit(), with the
-// System directory (trailing separator) and the launcher's package name.
+// Picks the folder for KHGWin.ini, KHGWin.log, saves and screenshots, and passes it to appSetUserDir().
+// Call before appInit(), with the System directory (trailing separator) and the command line:
+//   -portable, or a portable.txt next to the exe: the System folder itself (saves in ..\Save, like retail)
+//   -userdir=DIR: DIR (relative to the System folder unless absolute); no migration
+//   otherwise: <Saved Games>\Klingon Honor Guard\, set up on first run from the install (see below)
+// Returns the folder, with a trailing separator.
+std::string KHGDesktopChooseUserDir( const char* BaseDir, const char* CmdLine );
+
+// Builds <UserDir><Package>.ini if it doesn't exist yet. Call after KHGDesktopChooseUserDir() and before
+// appInit(). In the Saved Games folder the first run migrates the install: an existing System\KHGWin.ini is
+// copied (else the ini is built from the retail defaults), the save files from the retail Save folder
+// (and its Windows VirtualStore copy) are copied to <UserDir>Save, and the save slot names come along.
+// Nothing in the install is changed.
 void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package );
+
+// Call right after appInit(): when the user files live outside the System folder and the ini keeps the
+// retail SavePath=..\Save / CachePath=..\Cache, points them into the user folder (not written to the ini).
+void KHGDesktopApplyUserPaths();
 
 // Writes what KHGDesktopPrepareConfig did to the engine log. Call after appInit().
 void KHGDesktopLogConfigStatus();

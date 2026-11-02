@@ -14,7 +14,7 @@ for %%A in (win64 win32) do (
     xcopy /y /e /q "%TOOLS%..\%BUILD%-%%A\*" "%SYS%\" >nul || echo Could not copy %BUILD%-%%A into Installed\System.
     echo Running the map test, this takes a few minutes ...
     pushd "%SYS%"
-    start "" /wait KHGWin.exe -khgmaptest
+    start "" /wait KHGWin.exe -khgmaptest LOG=KHGWin.log
     popd
     copy /y "%SYS%\KHGWin.log" "%TOOLS%MapTest-%BUILD%-%%A.log" >nul
   ) else (

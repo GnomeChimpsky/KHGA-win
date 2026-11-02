@@ -1450,7 +1450,7 @@ UBOOL SaveAllConfigs(); // UNREAL_ANDROID_CONFIG_FORWARD
 CORE_API FGlobalPlatform GTempPlatform;
 INT GSlowTaskCount=0;
 FILE* GLogFile=NULL;
-char GLogFname[256]="";
+char GLogFname[1024]="";
 
 /*-----------------------------------------------------------------------------
 	Globals.
@@ -1721,8 +1721,8 @@ void appOpenLog( const char* Fname )
 	}
 	else
 	{
-		strcpy( GLogFname, appPackage() );
-		strcat( GLogFname, ".log" );
+		// [KHG] The log goes next to the ini (appUserDir() is the base dir unless the desktop build moved it).
+		appSprintf( GLogFname, "%s%s.log", appUserDir() == appBaseDir() ? "" : appUserDir(), appPackage() );
 		if( GIsEditor )
 			strcpy( GLogFname, "Editor.log" );
 		Parse( appCmdLine(), "LOG=", GLogFname, ARRAY_COUNT(GLogFname) );
@@ -1767,6 +1767,7 @@ void appInit()
 	}
 	else
 	{
+		appStrcpy( Ini, appUserDir() );   // [KHG] appBaseDir() unless the desktop build moved the user files
 		appStrcat( Ini, appPackage() );
 		appStrcat( Ini, ".ini" );
 		// Create Package.ini from Default.ini if it doesn't exist.
@@ -3046,6 +3047,18 @@ CORE_API const char* appBaseDir()
 
 	return BaseDir;
 #endif
+}
+
+// [KHG] Folder for the user's writable files (ini, log, saves): the desktop build sets it to
+// Saved Games\Klingon Honor Guard\ unless it runs portable. Empty = appBaseDir(), as on Android.
+static char GUserDir[1024]="";
+CORE_API void appSetUserDir( const char* Dir )
+{
+	appStrncpy( GUserDir, Dir ? Dir : "", ARRAY_COUNT(GUserDir) );
+}
+CORE_API const char* appUserDir()
+{
+	return GUserDir[0] ? GUserDir : appBaseDir();
 }
 
 // Get launch package base name.

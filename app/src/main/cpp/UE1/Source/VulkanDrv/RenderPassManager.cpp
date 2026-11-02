@@ -23,7 +23,7 @@ RenderPassManager::~RenderPassManager()
 // port keeps Unreal.ini). Not a game asset — a regenerable driver cache.
 static void KHG_PipelineCachePath(char* out, size_t outSize)
 {
-	snprintf(out, outSize, "%sVulkanPipelineCache.bin", appBaseDir());
+	snprintf(out, outSize, "%sVulkanPipelineCache.bin", appUserDir());   // [KHG] base dir unless the desktop build moved the user files
 }
 
 void RenderPassManager::CreatePipelineCache()

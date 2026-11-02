@@ -3939,6 +3939,7 @@ UEngine* InitEngine()
 	appInit();
 #ifdef PLATFORM_WIN32
 	KHGDesktopLogConfigStatus();   // [KHG] report how KHGWin.ini was set up (KHGDesktopConfig.cpp)
+	KHGDesktopApplyUserPaths();    // [KHG] saves in the user folder unless the ini names its own Save folder
 	{
 		// [KHG] -khgrecord=<file> / -khgreplay=<file>: input record and replay (NSDLViewport.cpp). Seed rand()
 		// before the first map's BeginPlay so the recording and every replay start from the same state.
@@ -4134,6 +4135,7 @@ static void KHGCloseStartupSplash()
 //   -khgloadtest          only load the saves in slots 100+map number (written by the other build) and log the pawns
 //   -khgsavedir=DIR       folder for those saves instead of the game's Save folder
 //   -khgloadsave=N        load save slot N once (e.g. a retail save), log the pawns, run the ticks, log them again
+//   -khgloadsaves         the same for every Save<n>.usa in the save folder (slots 0-9 and 100-199)
 static void KHGLogPawns( ULevel* Level, const char* Tag )
 {
 	// One line per pawn: the AI state, physics, health, zone and position it is in.
@@ -4166,20 +4168,38 @@ static void KHGRunMapTest( UEngine* Engine )
 	if( Parse( appCmdLine(), "KHGSAVEDIR=", SaveDir, ARRAY_COUNT(SaveDir) ) )
 		appStrcpy( GSys->SavePath, SaveDir );
 	INT LoadSlot = -1;
-	if( Parse( appCmdLine(), "KHGLOADSAVE=", LoadSlot ) && LoadSlot >= 0 )
+	const UBOOL LoadAll = ParseParam( appCmdLine(), "KHGLOADSAVES" );
+	if( LoadAll || ( Parse( appCmdLine(), "KHGLOADSAVE=", LoadSlot ) && LoadSlot >= 0 ) )
 	{
-		char URL[64], Error[256] = "";
-		appSprintf( URL, "?load=%i", LoadSlot );
-		debugf( NAME_Log, "[KHG] MapTest: loading save slot %i", LoadSlot );
-		if( GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+		// One slot, or (-khgloadsaves) every Save<n>.usa in the save folder for slots 0-9 and 100-199.
+		INT Tried = 0, Ok = 0;
+		for( INT Slot = LoadAll ? 0 : LoadSlot; Slot <= ( LoadAll ? 199 : LoadSlot ) && !GIsRequestingExit; Slot++ )
 		{
-			KHGLogPawns( GameEngine->GLevel, "-loaded" );
-			for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
-				Engine->Tick( 1.0 / 60.0 );
-			KHGLogPawns( GameEngine->GLevel, "" );
-			debugf( NAME_Log, "[KHG] MapTest: save slot %i loaded (%s)", LoadSlot, GameEngine->GLevel->GetFullName() );
+			char URL[64], File[256], Error[256] = "";
+			if( LoadAll )
+			{
+				if( Slot == 10 )
+					Slot = 100;
+				appSprintf( File, "%s" PATH_SEPARATOR "Save%i.usa", PATH(GSys->SavePath), Slot );
+				if( appFSize( File ) <= 0 )
+					continue;
+			}
+			Tried++;
+			appSprintf( URL, "?load=%i", Slot );
+			debugf( NAME_Log, "[KHG] MapTest: loading save slot %i", Slot );
+			srand( 1 );
+			if( GameEngine->Browse( FURL( &GameEngine->LastURL, URL, TRAVEL_Absolute ), Error ) )
+			{
+				KHGLogPawns( GameEngine->GLevel, "-loaded" );
+				for( INT t = 0; t < Ticks && !GIsRequestingExit; t++ )
+					Engine->Tick( 1.0 / 60.0 );
+				KHGLogPawns( GameEngine->GLevel, "" );
+				debugf( NAME_Log, "[KHG] MapTest: save slot %i loaded (%s)", Slot, GameEngine->GLevel->GetFullName() );
+				Ok++;
+			}
+			else debugf( NAME_Log, "[KHG] MapTest: save slot %i FAILED: %s", Slot, Error );
 		}
-		else debugf( NAME_Log, "[KHG] MapTest: save slot %i FAILED: %s", LoadSlot, Error );
+		debugf( NAME_Log, "[KHG] MapTest: done, %i of %i saves loaded", Ok, Tried );
 		appStrcpy( GSys->SavePath, OldSavePath );
 		return;
 	}
@@ -4645,7 +4665,7 @@ void MainLoop( UEngine* Engine )
 		GIsRunning = 0;
 		return;
 	}
-	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" )
+	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" ) || ParseParam( appCmdLine(), "KHGLOADSAVES" )
 	 || Parse( appCmdLine(), "KHGLOADSAVE=", KhgMapArg, ARRAY_COUNT(KhgMapArg) )
 	 || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
 	{
@@ -4811,6 +4831,8 @@ int main( int argc, const char** argv )
 #endif
 #ifdef PLATFORM_WIN32
 	// [KHG] Desktop build: create KHGWin.ini from the retail defaults before appInit() loads it.
+	// [KHG] Ini, log and saves go to Saved Games\Klingon Honor Guard unless portable (KHGDesktopConfig.cpp).
+	KHGDesktopChooseUserDir( appBaseDir(), appCmdLine() );
 	KHGDesktopPrepareConfig( appBaseDir(), appPackage() );
 #endif
 

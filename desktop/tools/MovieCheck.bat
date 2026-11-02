@@ -33,7 +33,7 @@ pushd "%SYS%"
 echo.
 echo [KHGWin] %FILE% plays right after start-up. Esc, Space, Enter or a click skips a movie, as in
 echo          retail. Quit the game when it is done.
-start "" /wait KHGWin.exe -khgexec=..\..\builds\tools\Movies\%FILE%
+start "" /wait KHGWin.exe -khgexec=..\..\builds\tools\Movies\%FILE% LOG=KHGWin.log
 copy /y KHGWin.log "%TOOLS%Movies-KHGWin.log" >nul
 echo [Retail] At the main menu press NumPad%CHOICE% (or Tab, then: exec ..\..\builds\tools\Movies\%FILE%).
 echo          Quit the game when it is done.

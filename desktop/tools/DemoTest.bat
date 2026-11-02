@@ -33,7 +33,7 @@ if not exist "%TOOLS%..\%BUILD%-%1\KHGWin.exe" (
 taskkill /f /im KHGWin.exe >nul 2>&1
 xcopy /y /e /q "%TOOLS%..\%BUILD%-%1\*" "%SYS%\" >nul || echo Could not copy %BUILD%-%1 into Installed\System.
 pushd "%SYS%"
-start "" /wait KHGWin.exe M02.unr %~2
+start "" /wait KHGWin.exe M02.unr %~2 LOG=KHGWin.log
 popd
 copy /y "%SYS%\KHGWin.log" "%TOOLS%DemoTest-%BUILD%-%3.log" >nul
 goto :eof

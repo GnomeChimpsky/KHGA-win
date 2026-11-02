@@ -20,7 +20,7 @@ pushd "%SYS%"
 for %%M in (%MAPS%) do (
   if not exist "%TOOLS%Spots\%%M.txt" (echo No spot file Spots\%%M.txt. & popd & goto fail)
   echo %%M: look along the floor, then quit the game to go on.
-  start "" /wait KHGWin.exe %%M.unr -khgexec=..\..\builds\tools\Spots\%%M.txt
+  start "" /wait KHGWin.exe %%M.unr -khgexec=..\..\builds\tools\Spots\%%M.txt LOG=KHGWin.log
 )
 popd
 echo Done.

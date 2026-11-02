@@ -378,10 +378,12 @@ UBOOL UViewport::Exec( const char* Cmd, FOutputDevice* Out )
 	else if( ParseCommand(&Cmd,"SHOT") )
 	{
 		// Screenshot.
-		char File[32];
+		// [KHG] Next to the ini and log: the System folder, or the desktop build's user folder.
+		char File[1100];
+		const char* ShotDir = appUserDir() == appBaseDir() ? "" : appUserDir();
 		for( INT i=0; i<256; i++ )
 		{
-			appSprintf( File, "Shot%04i.bmp", i );
+			appSprintf( File, "%sShot%04i.bmp", ShotDir, i );
 			if( appFSize(File) < 0 )
 				break;
 		}

@@ -115,7 +115,7 @@ target_compile_definitions(NOpenALDrv PRIVATE KHG_CDMUSIC)
 target_link_libraries(NOpenALDrv ff_avformat ff_avcodec ff_avutil ff_swresample)
 target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # The launcher defines its own WinMain (SDLLaunch.cpp), so SDL2main is not linked.
-target_link_libraries(Unreal xmp_static)
+target_link_libraries(Unreal xmp_static shell32 ole32)   # shell32/ole32: Saved Games folder (KHGDesktopConfig.cpp)
 target_include_directories(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/Res")   # Unreal.ico for KHGWin.rc
 
 # The launcher is installed as KHGWin.exe so it never overwrites the retail Khg.exe.
