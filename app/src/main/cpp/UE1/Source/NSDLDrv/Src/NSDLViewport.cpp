@@ -2712,6 +2712,7 @@ static FILE* GKHGDemoFile = NULL;
 struct FKHGDemoEvent { DWORD Frame; INT Kind; INT Key; INT Action; FLOAT Delta; };   // Kind 0 input event, 1 typed key
 static TArray<FKHGDemoEvent> GKHGDemoEvents;
 static INT GKHGDemoNext = 0;
+static TArray<FString> GKHGDemoLines;   // replay: the recording's B and P lines (see KHGDemoSettings)
 
 UBOOL KHGDemoOpen( const char* RecordFile, const char* ReplayFile )
 {
@@ -2736,6 +2737,14 @@ UBOOL KHGDemoOpen( const char* RecordFile, const char* ReplayFile )
 			E.Kind = 0;
 		else if( sscanf( Line, "T %u %i", &Frame, &E.Key )==2 )
 			E.Kind = 1, E.Action = 0, E.Delta = 0.f;
+		else if( ( Line[0]=='B' || Line[0]=='P' ) && Line[1]==' ' )
+		{
+			char* Nl = strpbrk( Line, "\r\n" );
+			if( Nl )
+				*Nl = 0;
+			new(GKHGDemoLines)FString( Line );
+			continue;
+		}
 		else
 		{
 			if( sscanf( Line, "END %u", &Frame )==1 )
@@ -2758,6 +2767,76 @@ void KHGDemoClose()
 		fclose( GKHGDemoFile );
 		GKHGDemoFile = NULL;
 	}
+}
+
+// [KHG] The recording also stores the key bindings and the player's input options it was made
+// with ("B <key> <binding>", "P <property> <value>"), and a replay uses those instead of the ones in
+// KHGWin.ini (without saving them), so a recording replays the same after the bindings change.
+static const char* const GKHGDemoProps[] = { "MouseSensitivity", "bAlwaysMouseLook", "bInvertMouse", "bSnapToLevel",
+	"bLookUpStairs", "bKeyboardLook", "MyAutoAim", "DodgeClickTime" };
+static UInput* GKHGDemoInput = NULL;
+static AActor* GKHGDemoActor = NULL;
+
+static UProperty* KHGDemoFindProp( AActor* Actor, const char* Name )
+{
+	for( TFieldIterator<UProperty> It(Actor->GetClass()); It; ++It )
+		if( appStricmp( It->GetName(), Name )==0 && It->ArrayDim==1 )
+			return *It;
+	return NULL;
+}
+
+// Recording: write the settings the first time the input system and the player exist.
+// Replay: apply the recorded ones whenever the input system or the player changes.
+static void KHGDemoSettings( UInput* Input, AActor* Actor )
+{
+	if( !Input || !Actor || ( Input==GKHGDemoInput && Actor==GKHGDemoActor ) )
+		return;
+	if( GKHGDemoMode == 1 && GKHGDemoFile && !GKHGDemoInput )
+	{
+		for( INT i=0; i<IK_MAX; i++ )
+			if( Input->Bindings[i].Length() )
+				fprintf( GKHGDemoFile, "B %i %s\n", i, *Input->Bindings[i] );
+		for( INT i=0; i<ARRAY_COUNT(GKHGDemoProps); i++ )
+			if( UProperty* Prop = KHGDemoFindProp( Actor, GKHGDemoProps[i] ) )
+			{
+				char Value[256] = "";
+				Prop->ExportTextItem( Value, (BYTE*)Actor + Prop->Offset, NULL, 1 );
+				fprintf( GKHGDemoFile, "P %s %s\n", GKHGDemoProps[i], Value );
+			}
+	}
+	else if( GKHGDemoMode == 2 && GKHGDemoLines.Num() )
+	{
+		UBOOL HasBindings = 0;
+		for( INT i=0; i<GKHGDemoLines.Num(); i++ )
+			HasBindings |= ( *GKHGDemoLines(i) )[0]=='B';
+		if( HasBindings && Input != GKHGDemoInput )
+			for( INT i=0; i<IK_MAX; i++ )
+				Input->Bindings[i] = "";
+		for( INT i=0; i<GKHGDemoLines.Num(); i++ )
+		{
+			const char* L = *GKHGDemoLines(i);
+			if( L[0]=='B' && Input != GKHGDemoInput )
+			{
+				char* End;
+				const INT Key = strtol( L+2, &End, 10 );
+				if( Key > 0 && Key < IK_MAX && *End==' ' )
+					Input->Bindings[Key] = End + 1;
+			}
+			else if( L[0]=='P' && Actor != GKHGDemoActor )
+			{
+				char Name[64];
+				const char* Sp = strchr( L+2, ' ' );
+				if( !Sp || Sp-(L+2) >= (INT)sizeof(Name) )
+					continue;
+				appStrncpy( Name, L+2, Sp-(L+2)+1 );
+				if( UProperty* Prop = KHGDemoFindProp( Actor, Name ) )
+					Prop->ImportText( Sp+1, (BYTE*)Actor + Prop->Offset, 1 );
+			}
+		}
+		debugf( NAME_Log, "[KHG] Demo: using the recording's key bindings and input options" );
+	}
+	GKHGDemoInput = Input;
+	GKHGDemoActor = Actor;
 }
 
 static void KHGDemoRecord( INT Kind, INT Key, INT Action, FLOAT Delta )
@@ -2954,6 +3033,8 @@ UBOOL UNSDLViewport::TickInput()
 	}
 #endif
 
+	if( GKHGDemoMode )
+		KHGDemoSettings( Input, Actor );
 	if( GKHGDemoMode == 2 )
 	{
 		// [KHG] Replay: drop the real input (only a window close still quits) and feed this frame's recorded events.
