@@ -7,7 +7,7 @@ rem Double-click to run, or WideShots.bat <commit> [maps...]. KHGWin only (no re
 rem Copies only the KHGWin files into Installed\System. KHGWin.ini is not changed (sizes and modes are per run).
 setlocal
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=4a90344
+if "%BUILD%"=="" set BUILD=5dd5575
 set MAPS=%2 %3 %4 %5 %6 %7 %8 %9
 if "%~2"=="" set MAPS=M02 M09A M17 m20b
 set TOOLS=%~dp0
