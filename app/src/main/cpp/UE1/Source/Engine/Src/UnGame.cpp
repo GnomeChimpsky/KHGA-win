@@ -253,6 +253,22 @@ UBOOL UGameEngine::Exec( const char* Cmd, FOutputDevice* Out )
 		Out->Logf( "HorPlusFOV=%s", GKHGHorPlus ? "True" : "False" );
 		return 1;
 	}
+#ifdef KHG_FMV
+	else if( ParseCommand( &Str, "WIDEHUD" ) )
+	{
+		// [KHG] "WideHUD [on|off]": unstretched HUD panels and 4:3 menus on wide screens (UnCanvas.cpp);
+		// no argument toggles it. Saved to [KHGWin] WidescreenHUD in KHGWin.ini.
+		if( ParseCommand( &Str, "ON" ) || ParseCommand( &Str, "1" ) || ParseCommand( &Str, "TRUE" ) )
+			GKHGWideHUD = 1;
+		else if( ParseCommand( &Str, "OFF" ) || ParseCommand( &Str, "0" ) || ParseCommand( &Str, "FALSE" ) )
+			GKHGWideHUD = 0;
+		else
+			GKHGWideHUD = !GKHGWideHUD;
+		SetConfigBool( "KHGWin", "WidescreenHUD", GKHGWideHUD );
+		Out->Logf( "WidescreenHUD=%s", GKHGWideHUD ? "True" : "False" );
+		return 1;
+	}
+#endif
 	else if( ParseCommand(&Str,"SAVEGAME") )
 	{
 		if( !GIsEditor && appIsDigit(Str[0]) && Str[1]==0 )
@@ -1071,7 +1087,15 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 #ifdef KHG_FMV
 	UCanvas* KHGCanvas = Viewport->Canvas;
 	const FLOAT KHGOrgX = KHGCanvas->OrgX, KHGClipX = KHGCanvas->ClipX;
-	const UBOOL KHGPillar = KHGTitleSplashHUD( Viewport ) && KHGCanvas->ClipX * 3.f > KHGCanvas->ClipY * 4.f + 1.f;
+	// [KHG] M7: with [KHGWin] WidescreenHUD=True the KlingonHUD menus (one full-screen frame drawn to
+	// ClipX/ClipY) are drawn on the same centred 4:3 canvas, and the in-game HUD panels keep their 4:3
+	// shape at the screen sides (UnCanvas.cpp, GKHGWideHUDActive).
+	const UBOOL KHGWide = KHGCanvas->ClipX * 3.f > KHGCanvas->ClipY * 4.f + 1.f;
+	APlayerPawn* KHGPlayer = Viewport->Actor;
+	AHUD* KHGHUD = KHGPlayer ? KHGPlayer->myHUD : NULL;
+	const UBOOL KHGMenu = GKHGWideHUD && KHGHUD && KHGPlayer->bShowMenu && KHGHUDBool( KHGHUD, "bAllowMenu" );
+	const UBOOL KHGPillar = KHGWide && ( KHGTitleSplashHUD( Viewport ) || KHGMenu );
+	GKHGWideHUDActive = KHGWide && GKHGWideHUD && !KHGPillar;
 	if( KHGPillar )
 	{
 		// KlingonHUD.PostRender calls Canvas.Reset() (OrgX back to 0) but sizes the splash from
@@ -1083,6 +1107,7 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 #endif
 	Viewport->Actor->eventPostRender( Viewport->Canvas );
 #ifdef KHG_FMV
+	GKHGWideHUDActive = 0;
 	if( KHGPillar )
 	{
 		const FLOAT Left = GKHGCanvasShiftX, Right = KHGClipX - Left - KHGCanvas->ClipX;

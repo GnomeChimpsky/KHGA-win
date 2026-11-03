@@ -94,6 +94,48 @@ static FLOAT AndroidCanvasScale()
 // [KHG] Horizontal offset added to every canvas tile while KlingonHUD draws its title splash or
 // legal screen. The HUD calls Canvas.Reset(), which puts OrgX back to 0, so the shift is applied here.
 ENGINE_API FLOAT GKHGCanvasShiftX = 0.f;
+
+// [KHG] M7 widescreen HUD. KlingonHUD lays its HUD out on a 640x480 grid scaled by ClipX/640 across and
+// ClipY/480 down, so on a screen wider than 4:3 every panel is stretched sideways. With [KHGWin]
+// WidescreenHUD=True (default) the tiles and text that its HUD functions draw are put back to their 4:3
+// shape (both axes scaled by ClipY/480) and pinned to the nearest screen side: panels left of the 640
+// grid's middle to the left edge, the others to the right edge, and the weapon bar to the centre.
+// Only the drawn position and width change; Canvas.CurX/CurY stay in the script's own layout.
+// UGameEngine::Draw sets GKHGWideHUDActive around PlayerPawn.PostRender (not for menus or splashes).
+ENGINE_API UBOOL GKHGWideHUD = 1;
+ENGINE_API UBOOL GKHGWideHUDActive = 0;
+enum { KHGANCHOR_None, KHGANCHOR_Side, KHGANCHOR_Centre };
+static INT KHGWideHUDAnchor( UCanvas* Canvas, FFrame& Stack )
+{
+	if( !GKHGWideHUDActive || !Stack.Node || !Stack.Object || !Stack.Object->IsA( AHUD::StaticClass ) )
+		return KHGANCHOR_None;
+	if( Canvas->ClipX * 3.f <= Canvas->ClipY * 4.f + 1.f )
+		return KHGANCHOR_None;
+	const char* F = Stack.Node->GetName();
+	if( !appStricmp( F, "DrawWeapDisp" ) )
+		return KHGANCHOR_Centre;
+	static const char* Side[] = { "DrawHealth", "DrawArmor", "DrawAmmo", "DrawCom", "DrawCurInv",
+		"DrawInventory", "DrawInvIcon", "DrawInvButtons", "DrawTimer", "DrawDMHUD" };
+	for( INT i=0; i<ARRAY_COUNT(Side); i++ )
+		if( !appStricmp( F, Side[i] ) )
+			return KHGANCHOR_Side;
+	return KHGANCHOR_None;
+}
+// Maps a stretched-layout X (and width) to the widescreen layout. Mid is the 640-grid position that picks
+// the side for KHGANCHOR_Side.
+static void KHGWideHUDMap( UCanvas* Canvas, INT Anchor, FLOAT Mid, FLOAT& X, FLOAT& XL )
+{
+	const FLOAT W = Canvas->ClipX, K = W / 640.f, S = Canvas->ClipY / 480.f, R = S / K;
+	FLOAT X0 = X - Canvas->OrgX;
+	if( Anchor == KHGANCHOR_Centre )
+		X0 = W * 0.5f + ( X0 - W * 0.5f ) * R;
+	else if( Mid < 320.f )
+		X0 = X0 * R;
+	else
+		X0 = W - ( W - X0 ) * R;
+	X = Canvas->OrgX + X0;
+	XL *= R;
+}
 #endif
 void UCanvas::DrawTile
 (
@@ -314,6 +356,9 @@ static inline void DrawChar( UCanvas* Canvas, FTextureInfo& Info, INT X, INT Y, 
 		XL = (INT)( XL * AndroidUIScale );
 		YL = (INT)( YL * AndroidUIScale );
 	}
+#endif
+#ifdef KHG_FMV
+	X += (INT)GKHGCanvasShiftX;   // [KHG] menu text on the centred 4:3 canvas (UGameEngine::Draw)
 #endif
 	// Reject.
 	FSceneNode* Frame=Canvas->Frame;
@@ -594,8 +639,22 @@ void UCanvas::execDrawText( FFrame& Stack, BYTE*& Result )
 		}
 	}
 #endif
+#ifdef KHG_FMV
+	const INT KHGAnchor = bCenter ? KHGANCHOR_None : KHGWideHUDAnchor( this, Stack );
+	const FLOAT KHGCurX = CurX;
+	if( KHGAnchor != KHGANCHOR_None )
+	{
+		// Text keeps its size; only where it starts moves with the panel it sits in.
+		FLOAT X = OrgX + CurX, XL = 0.f;
+		KHGWideHUDMap( this, KHGAnchor, CurX * 640.f / ClipX, X, XL );
+		CurX = X - OrgX;
+	}
+#endif
 	if( Style!=STY_None )
 		WrappedPrintf( Font, bCenter, "%s", AndroidDrawTextV125 );
+#ifdef KHG_FMV
+	CurX = KHGCurX;
+#endif
 	INT XL, YL;
 	WrappedStrLen( Font, XL, YL, ClipX, AndroidDrawTextV125 );
 	CurX += XL;
@@ -681,12 +740,18 @@ void UCanvas::execDrawTile( FFrame& Stack, BYTE*& Result )
         AndroidDrawXL,
         AndroidDrawYL,
 #else
+    FLOAT KHGDrawX = OrgX+CurX, KHGDrawXL = XL;
+#ifdef KHG_FMV
+    const INT KHGAnchor = KHGWideHUDAnchor( this, Stack );
+    if( KHGAnchor != KHGANCHOR_None )
+        KHGWideHUDMap( this, KHGAnchor, ( CurX + XL * 0.5f ) * 640.f / ClipX, KHGDrawX, KHGDrawXL );
+#endif
     if( Style!=STY_None ) DrawTile
     (
         Tex,
-        OrgX+CurX,
+        KHGDrawX,
         OrgY+CurY,
-        XL,
+        KHGDrawXL,
         YL,
 #endif
 		U,

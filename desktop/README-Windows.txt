@@ -69,17 +69,20 @@ on to the next one.
 
 Widescreen
 ----------
-By default the field of view works as in the retail game: the angle spans the
-width of the screen, so on a screen wider than 4:3 you see less at the top and
-bottom. Hor+ keeps the 4:3 view from top to bottom and shows more at the sides
-instead. Turn it on in KHGWin.ini, or type HorPlus in the console (it toggles
-and is saved; HorPlus on / HorPlus off also work):
+On a screen wider than 4:3 the game uses Hor+: you see the same from top to
+bottom as at 4:3 and more at the sides. The HUD panels keep their 4:3 shape and
+sit in the screen corners, with the weapon bar centred, and the menus are shown
+at 4:3 with black bars. Both can be switched back to the retail look (the view
+angle spans the screen width, and the HUD and menus are stretched) in KHGWin.ini:
 
   [KHGWin]
-  HorPlusFOV=True
+  HorPlusFOV=False
+  WidescreenHUD=False
 
-Gameplay is not affected: the game's own FOV value, zoom and mouse speed stay
-the same. 4:3 and narrower screens look the same either way.
+or in the console: HorPlus and WideHUD toggle them (and save the setting);
+HorPlus on / off and WideHUD on / off also work. Gameplay is not affected: the
+game's own FOV value, zoom and mouse speed stay the same. 4:3 and narrower
+screens look the same either way.
 
 Movies
 ------

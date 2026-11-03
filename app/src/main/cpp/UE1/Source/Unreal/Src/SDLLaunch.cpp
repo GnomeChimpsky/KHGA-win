@@ -4658,13 +4658,21 @@ void MainLoop( UEngine* Engine )
 	GetConfigBool( "KHGWin", "PlayIntroAtStartup", PlayIntroAtStartup );
 	// [KHG] M7 widescreen: [KHGWin] HorPlusFOV=True keeps the 4:3 vertical view on wider screens (UnCamera.h).
 	// -khghorplus=1|0 overrides it for one run (WideShots.bat) without touching the ini.
-	UBOOL HorPlus = 0;
+	UBOOL HorPlus = 1;   // default on since 2026-11-03 (Galvatron); False = retail vert- view
 	GetConfigBool( "KHGWin", "HorPlusFOV", HorPlus );
 	INT HorPlusArg = -1;
 	if( Parse( appCmdLine(), "KHGHORPLUS=", HorPlusArg ) )
 		HorPlus = HorPlusArg != 0;
 	GKHGHorPlus = HorPlus;
-	debugf( NAME_Log, "[KHG] Widescreen: HorPlusFOV=%s", GKHGHorPlus ? "True" : "False" );
+	// [KHGWin] WidescreenHUD=True (default): HUD panels unstretched at the screen sides, menus on a 4:3 canvas
+	// (UnCanvas.cpp); False = retail stretched HUD. -khgwidehud=1|0 overrides it for one run.
+	UBOOL WideHUD = 1;
+	GetConfigBool( "KHGWin", "WidescreenHUD", WideHUD );
+	INT WideHUDArg = -1;
+	if( Parse( appCmdLine(), "KHGWIDEHUD=", WideHUDArg ) )
+		WideHUD = WideHUDArg != 0;
+	GKHGWideHUD = WideHUD;
+	debugf( NAME_Log, "[KHG] Widescreen: HorPlusFOV=%s WidescreenHUD=%s", GKHGHorPlus ? "True" : "False", GKHGWideHUD ? "True" : "False" );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
 	char KhgMapArg[256];

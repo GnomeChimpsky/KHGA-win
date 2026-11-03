@@ -1,9 +1,10 @@
 @echo off
 rem M7 widescreen check. Takes the same camera views as RenderShots (plus the in-game menu) in the 64-bit
-rem KHGWin build named below at 4:3, 16:9 and 21:9, with the retail field of view and with Hor+, into
+rem KHGWin build named below at 4:3, 16:9 and 21:9, retail-style (stretched HUD, vert- view) and widescreen
+rem (Hor+ view, unstretched HUD panels, 4:3 menu), into
 rem builds\tools\Shots\Wide-<build>, and opens a page that shows them side by side.
 rem Double-click to run, or WideShots.bat <commit> [maps...]. KHGWin only (no retail run); about a minute per map.
-rem Copies only the KHGWin files into Installed\System. KHGWin.ini is not changed (sizes and Hor+ are per run).
+rem Copies only the KHGWin files into Installed\System. KHGWin.ini is not changed (sizes and modes are per run).
 setlocal
 set BUILD=%~1
 if "%BUILD%"=="" set BUILD=4a90344
@@ -41,10 +42,10 @@ set N=0
 for %%R in (1440x1080 1920x1080 2560x1080) do (
   for %%H in (0 1) do (
     if not "%%R%%H"=="1440x10801" (
-      echo [%%R, Hor+ %%H]
+      echo [%%R, widescreen %%H]
       for %%M in (%MAPS%) do (
         echo   %%M
-        start "" /wait KHGWin.exe -khgshots=..\..\builds\tools\Shots\Wide-%BUILD%\%%R-%%H -khgviews=..\..\builds\tools\Shots\WideViews -khgmap=%%M.unr -khgres=%%R -khghorplus=%%H LOG=KHGWin.log
+        start "" /wait KHGWin.exe -khgshots=..\..\builds\tools\Shots\Wide-%BUILD%\%%R-%%H -khgviews=..\..\builds\tools\Shots\WideViews -khgmap=%%M.unr -khgres=%%R -khghorplus=%%H -khgwidehud=%%H LOG=KHGWin.log
         copy /y KHGWin.log "%OUT%\KHGWin-%%R-%%H-%%M.log" >nul
       )
     )

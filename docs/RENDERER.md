@@ -31,7 +31,9 @@ runtime GLSL compiler on device.
   HorPlusFOV=True` (or the `HorPlus` console command) widens it for screens wider than 4:3:
   `tan(FOV/2)` is multiplied by `(SizeX/SizeY)/(4/3)` in both `FSceneNode::ComputeRenderSize`
   (culling, coronas, sprites) and the Vulkan projection, so the vertical view of a 4:3 screen is
-  kept. Off by default (retail: the FOV spans the width). Script values are untouched.
+  kept. On by default since M7 (False = retail: the FOV spans the width). Script values are untouched.
+  `[KHGWin] WidescreenHUD` (default True, console `WideHUD`) keeps KlingonHUD panels at their 4:3
+  shape at the screen sides and draws its menus on a centred 4:3 canvas (`UnCanvas.cpp`).
 - **Sleep / resume** — on resume, the Vulkan surface is rebuilt from the current
   `ANativeWindow` and the swapchain is recreated; frames are skipped while backgrounded. The old
   surface is held alive until the old swapchain built on it is destroyed (avoiding a

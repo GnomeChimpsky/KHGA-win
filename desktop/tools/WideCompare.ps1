@@ -1,15 +1,15 @@
-# M7: writes Shots\Wide-<build>.html, every WideShots view at 4:3, 16:9 and 21:9 with the retail field of view
-# (vert-) and with Hor+. The screenshots are taken without the present gamma (like RenderShots); the page applies
+# M7: writes Shots\Wide-<build>.html, every WideShots view at 4:3, 16:9 and 21:9 retail-style (stretched HUD, vert-
+# view) and widescreen (Hor+, unstretched HUD, 4:3 menu). The screenshots are taken without the present gamma (like RenderShots); the page applies
 # the Glide present curve of the default Brightness 0.5 (exponent 1/1.25) so they look as they do in the game.
 # Run by WideShots.bat, or: powershell -File WideCompare.ps1 -Out <Shots\Wide-build folder> -Build <commit>
 param( [Parameter(Mandatory=$true)][string]$Out, [Parameter(Mandatory=$true)][string]$Build )
 $ErrorActionPreference = 'Stop'
 $sets = @(
   @{ Dir='1440x1080-0'; Label='4:3 (1440x1080)' },
-  @{ Dir='1920x1080-0'; Label='16:9 retail FOV' },
-  @{ Dir='1920x1080-1'; Label='16:9 Hor+' },
-  @{ Dir='2560x1080-0'; Label='21:9 retail FOV' },
-  @{ Dir='2560x1080-1'; Label='21:9 Hor+' } )
+  @{ Dir='1920x1080-0'; Label='16:9 retail-style' },
+  @{ Dir='1920x1080-1'; Label='16:9 widescreen' },
+  @{ Dir='2560x1080-0'; Label='21:9 retail-style' },
+  @{ Dir='2560x1080-1'; Label='21:9 widescreen' } )
 $folder = Split-Path $Out -Leaf
 $names = @( foreach( $s in $sets ) { $d = Join-Path $Out $s.Dir; if( Test-Path $d ) { Get-ChildItem $d -Filter *.bmp | ForEach-Object Name } } ) | Sort-Object -Unique
 $rows = foreach( $n in $names ) {

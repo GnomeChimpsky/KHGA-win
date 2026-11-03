@@ -358,6 +358,10 @@ extern ENGINE_API UBOOL GKHGHorPlus;
 // wider than 4:3. Uses the whole viewport, so pulling the console down or shrinking the view border does
 // not change the field of view.
 ENGINE_API FLOAT KHGHorPlusScale( UViewport* Viewport );
+// [KHG] Widescreen HUD (desktop build, UnCanvas.cpp): [KHGWin] WidescreenHUD / "WideHUD" console command.
+// GKHGWideHUDActive is set by UGameEngine::Draw only while PlayerPawn.PostRender draws the in-game HUD.
+extern ENGINE_API UBOOL GKHGWideHUD;
+extern ENGINE_API UBOOL GKHGWideHUDActive;
 
 /*-----------------------------------------------------------------------------
 	The End.
