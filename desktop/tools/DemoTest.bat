@@ -6,7 +6,7 @@ rem   2. Replays your recording with the 64-bit build, then with the 32-bit buil
 rem The recording is builds\tools\Demo\M02.txt; logs are builds\tools\DemoTest-<build>-<step>.log.
 rem Movies are skipped while recording and replaying. Copies only KHGWin files into Installed\System.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=80d650e
+if "%BUILD%"=="" set BUILD=4a90344
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 if not exist "%TOOLS%Demo" mkdir "%TOOLS%Demo"

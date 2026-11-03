@@ -12,7 +12,7 @@ rem Test saves stay in builds\tools\Compat; the game's own Save folder and Khg.i
 rem Copies only the KHGWin files into Installed\System, like the other test bats.
 setlocal
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=80d650e
+if "%BUILD%"=="" set BUILD=4a90344
 set ONLY=%~2
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
