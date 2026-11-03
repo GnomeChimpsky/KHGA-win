@@ -6,7 +6,8 @@ rem   2. KHGWin 64-bit and 32-bit: load every retail save, log the pawns  -> Sav
 rem   3. KHGWin 64-bit and 32-bit: save in every map and load it back     -> Compat\Win64, Compat\Win32
 rem   4. KHGWin 32-bit loads the 64-bit saves, 64-bit loads the 32-bit saves
 rem   5. Retail Khg.exe loads the KHGWin 64-bit and 32-bit saves, one screenshot each -> Compat\Shots
-rem Double-click, or SaveCompat.bat <build>. Run one part with SaveCompat.bat <build> <step number>.
+rem Double-click, or SaveCompat.bat <build>. Run one part with SaveCompat.bat <build> <step number>,
+rem or steps 1 and 2 with SaveCompat.bat <build> retail.
 rem Test saves stay in builds\tools\Compat; the game's own Save folder and Khg.ini are not touched.
 rem Copies only the KHGWin files into Installed\System, like the other test bats.
 setlocal
@@ -23,6 +24,7 @@ taskkill /f /im Khg.exe >nul 2>&1
 
 if "%ONLY%"=="" goto step1
 if "%ONLY%"=="1" goto step1
+if /i "%ONLY%"=="retail" goto step1
 goto after1
 :step1
 echo Step 1: retail saves (hands off the keyboard and mouse) ...
@@ -31,6 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOLS%RetailSaves.ps1" -Sy
 
 if "%ONLY%"=="" goto step2
 if "%ONLY%"=="2" goto step2
+if /i "%ONLY%"=="retail" goto step2
 goto after2
 :step2
 echo Step 2: KHGWin loads the retail saves ...

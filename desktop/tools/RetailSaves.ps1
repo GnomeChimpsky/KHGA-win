@@ -1,7 +1,7 @@
 # M6 save compatibility, retail half. Two modes:
 #   -Mode Save : for each map, starts the retail Khg.exe on it, lets it run, then saves with the console
-#                command "savegame <slot>" (slot 100, 101, ... in map order). Saves go to -SaveDir and the
-#                slot -> map list to <SaveDir>\slots.txt.
+#                command "savegame 9" (retail SAVEGAME takes one digit only), and renames the save to slot
+#                100, 101, ... in map order. Saves go to -SaveDir and the slot -> map list to <SaveDir>\slots.txt.
 #   -Mode Load : loads KHGWin saves in the retail Khg.exe ("open ?load=<slot>") from -SaveDir, using the
 #                map list in -PortLog (a KHGWin -khgsavetest log), and takes a screenshot of each loaded save.
 # Console commands go through F11 (= exec Compat\cmd.txt) and F12 (= shot), sent to the game window, so the
@@ -84,18 +84,20 @@ if ($Mode -eq 'Save') {
   for ($i = 0; $i -lt $Maps.Count; $i++) {
     $map = $Maps[$i]; $slot = 100 + $i
     $file = Join-Path $saveFull "Save$slot.usa"
-    Remove-Item $file -ErrorAction SilentlyContinue
+    $tmp = Join-Path $saveFull 'Save9.usa'
+    Remove-Item $file, $tmp -ErrorAction SilentlyContinue
     Write-Host "Retail $map -> slot $slot"
     $p = Start-Game $map
     if (-not (Wait-Log $p "Bringing Level $map.MyLevel up for play" 120)) {
       Write-Host "  level did not come up" -ForegroundColor Red; $failed += $map; Stop-Game $p; continue
     }
     Start-Sleep -Seconds 12          # let the level run (AI, movers) before saving
-    Send-Console $p @("savegame $slot")
+    Send-Console $p @('savegame 9')
     $deadline = (Get-Date).AddSeconds(30)
-    while ((Get-Date) -lt $deadline -and -not (Test-Path $file)) { Start-Sleep -Milliseconds 500 }
+    while ((Get-Date) -lt $deadline -and -not (Test-Path $tmp)) { Start-Sleep -Milliseconds 500 }
     Start-Sleep -Seconds 2
     Stop-Game $p
+    if (Test-Path $tmp) { Move-Item -Force $tmp $file }
     Copy-Item -Force $log (Join-Path $Out "KHGSave-$map.log") -ErrorAction SilentlyContinue
     if (Test-Path $file) { $ok++; $slots += "$slot $map" ; Write-Host "  saved ($((Get-Item $file).Length) bytes)" }
     else { Write-Host "  no save file" -ForegroundColor Red; $failed += $map }
