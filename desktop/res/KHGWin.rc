@@ -7,6 +7,10 @@
 // Unreal.ico lives in app/src/main/cpp/UE1/Source/Unreal/Src/Res (on the windres include path).
 IDICON_MAINFRAME ICON "Unreal.ico"
 
+// Common controls 6 for the launcher window only (KHGLauncher.cpp activates it around the window).
+// Resource 2 is not applied to the process by Windows, so the game itself is unaffected.
+2 24 "KHGLauncher.manifest"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0
  PRODUCTVERSION 0,1,0,0

@@ -13,6 +13,20 @@ Install
 
 Requirements: Windows 10 or 11 and a GPU with a Vulkan driver.
 
+Launcher
+--------
+When you start KHGWin.exe, a settings window opens first, with the settings
+the game's own menus can't change (display mode, any resolution, vsync,
+widescreen, lighting, raw mouse, controller, audio device, music volume and
+more). Hover over a setting for a short description. Play saves them to
+KHGWin.ini and starts the game; Quit closes without starting it. Only the
+settings you change are written.
+
+Untick "Show this window at startup" to start the game straight away. Hold
+Shift while starting KHGWin.exe (or start it with -launcher) to bring the
+window back; -nolauncher skips it for one start. The test tools (-khg...
+switches) never show it.
+
 Your settings and saves
 -----------------------
 KHGWin keeps everything it writes in your Saved Games folder:

@@ -14,6 +14,7 @@
 #include <math.h>
 #ifdef PLATFORM_WIN32
 #include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
+#include "KHGLauncher.h"        // [KHG] settings window before the game starts (desktop build)
 #endif
 #ifdef PLATFORM_ANDROID
 #include <android/log.h>
@@ -4851,6 +4852,17 @@ int main( int argc, const char** argv )
 	// [KHG] Ini, log and saves go to Saved Games\Klingon Honor Guard unless portable (KHGDesktopConfig.cpp).
 	KHGDesktopChooseUserDir( appBaseDir(), appCmdLine() );
 	KHGDesktopPrepareConfig( appBaseDir(), appPackage() );
+	{
+		// [KHG] Launcher: settings the game's menus can't change, before appInit() reads KHGWin.ini (KHGLauncher.cpp).
+		const std::string KHGIni = std::string( appUserDir() ) + appPackage() + ".ini";
+		if( !GIsEditor && GIsClient && KHGLauncherWanted( appCmdLine(), KHGIni.c_str() )
+		 && !KHGRunLauncher( appBaseDir(), appUserDir(), KHGIni.c_str() ) )
+		{
+			// Quit: nothing is initialised yet, and the engine's static objects can't run their
+			// destructors before appInit(), so leave without them.
+			TerminateProcess( GetCurrentProcess(), 0 );
+		}
+	}
 #endif
 
 	// Init log.
