@@ -41,11 +41,29 @@ saves once in every single-player map (`savegame 1xx` from the console), both KH
 those saves and log every pawn, both KHGWin builds save in every map, each loads the other's saves,
 and the retail Khg.exe loads the KHGWin saves.
 
-Results: see the table below (filled in from the test logs).
+Results of the run on 2026-11-02/03 (build 80d650e, Windows 11, retail install patched to 1.1).
+Retail saves are written with `savegame 9` and renamed to slot 1xx, because the retail SAVEGAME
+command only takes a single digit.
 
 | Save written by | Loaded by KHGWin win64 | Loaded by KHGWin win32 | Loaded by retail Khg.exe |
 |---|---|---|---|
-| Retail Khg.exe 219 | pending | pending | (native) |
-| KHGWin win64 | (native) | pending | pending |
-| KHGWin win32 | pending | (native) | pending |
+| Retail Khg.exe 219 (27 single-player maps, after ~12 s of play) | 27/27 | 27/27, pawn states identical to win64 | (native) |
+| Retail Khg.exe 219, player's own menu save (M01) | 1/1 (M2, 9fa9035) | 1/1 (M2, 9fa9035) | (native) |
+| KHGWin win64 (all 40 maps incl. deathmatch, after 300 ticks) | 40/40 | 40/40, pawn states identical | 27/27 single-player maps |
+| KHGWin win32 (same) | 40/40 | 40/40 | 27/27 single-player maps |
 | Android port | not tested: no Android saves available | not tested | not tested |
+
+Notes:
+- "Pawn states identical" compares every pawn's AI state, physics, health, zone, enemy and weapon
+  in the KHGWin logs (positions are left out; they differ only by float rounding). A win64 save and a
+  win32 save of the same map have the same size; 16 bytes differ (the package GUID).
+- On load the player goes from IntroScene/LockControls to PlayerWalking. That is stock UE1 behaviour
+  (the player is re-possessed), the same for every save, including retail ones.
+- Retail loads were checked by the retail log (the player is possessed in the loaded Save package)
+  and a screenshot each (builds\tools\Compat\Shots). One retail run (win64 m19 save) crashed in the
+  retail Glide shutdown when quitting, after the save had loaded and run: a retail exit crash.
+- Script warnings after loading retail saves (missing animation sequences WaitGL/WaitBA, Accessed
+  None in DWCaptain.OverHeadDamageTarget and BireQT.BiteDamageTarget) are the original scripts and
+  appear identically on both builds.
+- Hub saves (Save<n><i>.usa) were not covered: the test saves are made at map start, where the hub
+  stack is empty.
