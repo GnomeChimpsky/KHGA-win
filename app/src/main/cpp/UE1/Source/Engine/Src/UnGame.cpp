@@ -1086,7 +1086,7 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 	Viewport->RenDev->EndFlash();
 #ifdef KHG_FMV
 	UCanvas* KHGCanvas = Viewport->Canvas;
-	const FLOAT KHGOrgX = KHGCanvas->OrgX, KHGClipX = KHGCanvas->ClipX;
+	const FLOAT KHGOrgX = KHGCanvas->OrgX, KHGClipX = KHGCanvas->ClipX, KHGOrgY = KHGCanvas->OrgY, KHGClipY = KHGCanvas->ClipY;
 	// [KHG] M7: with [KHGWin] WidescreenHUD=True the KlingonHUD menus (one full-screen frame drawn to
 	// ClipX/ClipY) are drawn on the same centred 4:3 canvas, and the in-game HUD panels keep their 4:3
 	// shape at the screen sides (UnCanvas.cpp, GKHGWideHUDActive).
@@ -1114,6 +1114,10 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 		GKHGCanvasShiftX = 0.f;
 		KHGCanvas->OrgX = KHGOrgX;
 		KHGCanvas->ClipX = KHGClipX;
+		// The menu scripts leave their own origin and clip region behind (SetOrigin/SetClip for the help
+		// line), so the bars use the canvas as it was before PostRender.
+		KHGCanvas->OrgY = KHGOrgY;
+		KHGCanvas->ClipY = KHGClipY;
 		// Solid black bars (the point pipeline, like the FMV backdrop). A tile of Level.DefaultTexture
 		// drawn with colour 0 is not black in every map (M02 shows its texture in the bars).
 		if( Viewport->RenDev && Left > 0.f )
