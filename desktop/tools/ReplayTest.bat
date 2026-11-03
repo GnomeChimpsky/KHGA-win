@@ -4,7 +4,7 @@ rem 32-bit build. Hands off while it runs. Recordings made before build c9eecfa 
 rem the key bindings they were made with, so they drift after a binding change: record a new one with DemoTest.bat.
 rem Logs: builds\tools\Replay-<build>-<arch>.log. Copies only KHGWin files into Installed\System.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=5dd5575
+if "%BUILD%"=="" set BUILD=aaabbec
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 if not exist "%TOOLS%Demo\M02.txt" (

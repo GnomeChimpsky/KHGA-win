@@ -3,7 +3,7 @@ rem Loads the retail save builds\tools\RetailSave\Save0.usa (a copy of the one K
 rem 64-bit and then the 32-bit KHGWin, logs every pawn right after loading and after 300 ticks.
 rem Logs: builds\tools\RetailSaveTest-<build>-<arch>.log. The real Installed\Save folder is not used.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=5dd5575
+if "%BUILD%"=="" set BUILD=aaabbec
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 for %%A in (win64 win32) do (
