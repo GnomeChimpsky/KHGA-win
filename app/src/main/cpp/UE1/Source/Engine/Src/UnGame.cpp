@@ -1114,12 +1114,13 @@ void UGameEngine::Draw( UViewport* Viewport, BYTE* HitData, INT* HitSize )
 		GKHGCanvasShiftX = 0.f;
 		KHGCanvas->OrgX = KHGOrgX;
 		KHGCanvas->ClipX = KHGClipX;
-		UTexture* Black = Viewport->Actor->Level ? Viewport->Actor->Level->DefaultTexture : NULL;
-		if( Black )
+		// Solid black bars (the point pipeline, like the FMV backdrop). A tile of Level.DefaultTexture
+		// drawn with colour 0 is not black in every map (M02 shows its texture in the bars).
+		if( Viewport->RenDev && Left > 0.f )
 		{
-			// Drawn with colour 0 like KlingonHUD.DrawBlack, which gives black.
-			KHGCanvas->DrawTile( Black, KHGOrgX, KHGCanvas->OrgY, Left, KHGCanvas->ClipY, 0, 0, 1, 1, NULL, KHGCanvas->Z, FPlane(0,0,0,0), FPlane(0,0,0,0), PF_TwoSided | PF_NoSmooth );
-			KHGCanvas->DrawTile( Black, KHGOrgX + KHGClipX - Right, KHGCanvas->OrgY, Right, KHGCanvas->ClipY, 0, 0, 1, 1, NULL, KHGCanvas->Z, FPlane(0,0,0,0), FPlane(0,0,0,0), PF_TwoSided | PF_NoSmooth );
+			const FLOAT Y1 = KHGCanvas->OrgY, Y2 = KHGCanvas->OrgY + KHGCanvas->ClipY - 1.f;
+			Viewport->RenDev->Draw2DPoint( Frame, FPlane(0,0,0,1), 0, KHGOrgX, Y1, KHGOrgX + Left - 1.f, Y2 );
+			Viewport->RenDev->Draw2DPoint( Frame, FPlane(0,0,0,1), 0, KHGOrgX + KHGClipX - Right, Y1, KHGOrgX + KHGClipX - 1.f, Y2 );
 		}
 	}
 #endif
