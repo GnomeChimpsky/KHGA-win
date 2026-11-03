@@ -6,7 +6,7 @@ rem it sends F11/F12 key presses to the game. Takes about a minute per map.
 rem Copies only the KHGWin files into Installed\System; Khg.ini is not touched (the retail run uses KHGShot.ini).
 setlocal
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=aaabbec
+if "%BUILD%"=="" set BUILD=8c8f031
 set MAPS=%2 %3 %4 %5 %6 %7 %8 %9
 if "%~2"=="" set MAPS=M02 M04A M06B M09A M11 M14 M17 m19 m20b DR05
 set TOOLS=%~dp0

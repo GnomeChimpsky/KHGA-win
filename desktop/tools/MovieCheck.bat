@@ -6,7 +6,7 @@ rem Copies only the KHGWin files into Installed\System; Khg.ini is not touched (
 rem a copy of Khg.ini where NumPad1-6 play the sets).
 setlocal EnableDelayedExpansion
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=aaabbec
+if "%BUILD%"=="" set BUILD=8c8f031
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 if not exist "%TOOLS%..\%BUILD%-win64\KHGWin.exe" (
