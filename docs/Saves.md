@@ -37,7 +37,7 @@ are taken from `Khg.ini`.
 ## Save compatibility
 
 Tested with `builds\tools\SaveCompat.bat` (desktop/tools): the retail Khg.exe (build 219, patch 1.1)
-saves once in every single-player map (`savegame 1xx` from the console), both KHGWin builds load
+saves once in every single-player map (`savegame 9` from the console), both KHGWin builds load
 those saves and log every pawn, both KHGWin builds save in every map, each loads the other's saves,
 and the retail Khg.exe loads the KHGWin saves.
 
@@ -56,7 +56,7 @@ command only takes a single digit.
 Notes:
 - "Pawn states identical" compares every pawn's AI state, physics, health, zone, enemy and weapon
   in the KHGWin logs (positions are left out; they differ only by float rounding). A win64 save and a
-  win32 save of the same map have the same size; 16 bytes differ (the package GUID).
+  win32 save of the same map have the same size; 16 bytes differ (most likely the package GUID, which is random per save).
 - On load the player goes from IntroScene/LockControls to PlayerWalking. That is stock UE1 behaviour
   (the player is re-possessed), the same for every save, including retail ones.
 - Retail loads were checked by the retail log (the player is possessed in the loaded Save package)
