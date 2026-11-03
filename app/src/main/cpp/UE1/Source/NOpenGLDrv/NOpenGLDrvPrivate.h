@@ -65,6 +65,7 @@ class DLL_EXPORT UNOpenGLRenderDevice : public URenderDevice
 	struct FCachedSceneNode
 	{
 		FLOAT FovAngle;
+		FLOAT HorPlus;   // [KHG] KHGHorPlusScale
 		FLOAT FX, FY;
 		INT X, Y;
 		INT XB, YB;

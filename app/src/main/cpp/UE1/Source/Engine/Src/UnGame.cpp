@@ -239,6 +239,20 @@ UBOOL UGameEngine::Exec( const char* Cmd, FOutputDevice* Out )
 			Out->Logf( "Start failed: %s", Error256 );
 		return 1;
 	}
+	else if( ParseCommand( &Str, "HORPLUS" ) )
+	{
+		// [KHG] "HorPlus [on|off]": widescreen Hor+ field of view (UnCamera.h); no argument toggles it.
+		// Saved to [KHGWin] HorPlusFOV in KHGWin.ini.
+		if( ParseCommand( &Str, "ON" ) || ParseCommand( &Str, "1" ) || ParseCommand( &Str, "TRUE" ) )
+			GKHGHorPlus = 1;
+		else if( ParseCommand( &Str, "OFF" ) || ParseCommand( &Str, "0" ) || ParseCommand( &Str, "FALSE" ) )
+			GKHGHorPlus = 0;
+		else
+			GKHGHorPlus = !GKHGHorPlus;
+		SetConfigBool( "KHGWin", "HorPlusFOV", GKHGHorPlus );
+		Out->Logf( "HorPlusFOV=%s", GKHGHorPlus ? "True" : "False" );
+		return 1;
+	}
 	else if( ParseCommand(&Str,"SAVEGAME") )
 	{
 		if( !GIsEditor && appIsDigit(Str[0]) && Str[1]==0 )

@@ -88,6 +88,16 @@ void FSceneNode::ComputeRenderCoords( FVector& Location, FRotator& Rotation )
 	unguard;
 }
 
+// [KHG] Widescreen Hor+ field of view (UnCamera.h).
+ENGINE_API UBOOL GKHGHorPlus = 0;
+ENGINE_API FLOAT KHGHorPlusScale( UViewport* Viewport )
+{
+	if( !GKHGHorPlus || !Viewport || Viewport->SizeX <= 0 || Viewport->SizeY <= 0 )
+		return 1.f;
+	const FLOAT Scale = ( (FLOAT)Viewport->SizeX * 3.f ) / ( (FLOAT)Viewport->SizeY * 4.f );
+	return Scale > 1.f ? Scale : 1.f;
+}
+
 //
 // Precompute sizing info.
 //
@@ -106,6 +116,9 @@ void FSceneNode::ComputeRenderSize()
 	FX15		= (FX+1.0001) * 0.5;
 	FY15		= (FY+1.0001) * 0.5;	
 	Proj		= FVector( 0.5-FX2, 0.5-FY2, FX / (2.0*GMath.SinTab(Angle) / GMath.CosTab(Angle)) );
+	const FLOAT HorPlus = KHGHorPlusScale( Viewport );   // [KHG] widescreen Hor+ (1 = retail)
+	if( HorPlus != 1.f )
+		Proj.Z /= HorPlus;
 	RProj		= FVector( 1/Proj.X, 1/Proj.Y, 1/Proj.Z );
 	Zoom 		= Viewport->Actor->OrthoZoom / (FX * 15.0);
 	RZoom		= 1.0/Zoom;

@@ -346,6 +346,20 @@ class ENGINE_API UClient : public UObject
 };
 
 /*-----------------------------------------------------------------------------
+	[KHG] Widescreen (Hor+) field of view.
+-----------------------------------------------------------------------------*/
+
+// [KHG] Off (default) = retail: FovAngle spans the view's width, so a screen wider than 4:3 sees less
+// vertically (vert-). On = Hor+: the vertical view of a 4:3 screen is kept and the sides widen. Set from
+// [KHGWin] HorPlusFOV in KHGWin.ini, or the "HorPlus" console command. Script values (FovAngle,
+// DesiredFOV) never change, so gameplay, zoom and mouse scaling stay as in the retail game.
+extern ENGINE_API UBOOL GKHGHorPlus;
+// The factor that multiplies tan(FovAngle/2) for this viewport: 1 unless Hor+ is on and the viewport is
+// wider than 4:3. Uses the whole viewport, so pulling the console down or shrinking the view border does
+// not change the field of view.
+ENGINE_API FLOAT KHGHorPlusScale( UViewport* Viewport );
+
+/*-----------------------------------------------------------------------------
 	The End.
 -----------------------------------------------------------------------------*/
 #pragma pack(pop) // KHG

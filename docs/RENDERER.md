@@ -26,10 +26,12 @@ runtime GLSL compiler on device.
   `GREATER_OR_EQUAL` compare. This was the structural fix for an earlier "see-through surfaces"
   problem under the GLES path (low-precision depth losing coplanar BSP faces).
 - **Engine-exact projection** — the projection matrix is built from the engine's own projection
-  math (`ScreenX = FX2 + Point.X * ProjZ / Point.Z`), computed from the actor's stable
-  `DesiredFOV` with a hor+ widescreen correction. It deliberately does **not** use the live
-  `FOVAngle` (which the menu intro leaves mid-zoom, compressing the scene) nor the legacy GLES
-  auto-FOV.
+  math (`ScreenX = FX2 + Point.X * ProjZ / Point.Z`), computed from the actor's live `FovAngle`,
+  falling back to `DesiredFOV` when it is out of range. On the desktop build `[KHGWin]
+  HorPlusFOV=True` (or the `HorPlus` console command) widens it for screens wider than 4:3:
+  `tan(FOV/2)` is multiplied by `(SizeX/SizeY)/(4/3)` in both `FSceneNode::ComputeRenderSize`
+  (culling, coronas, sprites) and the Vulkan projection, so the vertical view of a 4:3 screen is
+  kept. Off by default (retail: the FOV spans the width). Script values are untouched.
 - **Sleep / resume** — on resume, the Vulkan surface is rebuilt from the current
   `ANativeWindow` and the swapchain is recreated; frames are skipped while backgrounded. The old
   surface is held alive until the old swapchain built on it is destroyed (avoiding a

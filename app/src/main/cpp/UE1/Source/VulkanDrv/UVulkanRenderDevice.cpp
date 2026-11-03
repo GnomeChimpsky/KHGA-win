@@ -845,6 +845,7 @@ void UVulkanRenderDevice::UpdateSceneNode( FSceneNode* Frame )
 		fov = ( dfov >= 1.0f && dfov <= 170.0f ) ? dfov : 90.0f;
 	}
 	RProjZ = (float)tan( fov * (PI / 360.0) );   // tan(FovAngle/2)
+	RProjZ *= KHGHorPlusScale( Viewport );        // [KHG] widescreen Hor+, same factor as FSceneNode::ComputeRenderSize
 	RFX2 = 2.0f * RProjZ / Frame->FX;
 	RFY2 = 2.0f * RProjZ * Aspect / Frame->FY;
 

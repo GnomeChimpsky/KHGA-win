@@ -4656,6 +4656,15 @@ void MainLoop( UEngine* Engine )
 	// PlayIntroAtStartup=True in KHGWin.ini brings back the Android port's intro before the menu.
 	UBOOL PlayIntroAtStartup = 0;
 	GetConfigBool( "KHGWin", "PlayIntroAtStartup", PlayIntroAtStartup );
+	// [KHG] M7 widescreen: [KHGWin] HorPlusFOV=True keeps the 4:3 vertical view on wider screens (UnCamera.h).
+	// -khghorplus=1|0 overrides it for one run (WideShots.bat) without touching the ini.
+	UBOOL HorPlus = 0;
+	GetConfigBool( "KHGWin", "HorPlusFOV", HorPlus );
+	INT HorPlusArg = -1;
+	if( Parse( appCmdLine(), "KHGHORPLUS=", HorPlusArg ) )
+		HorPlus = HorPlusArg != 0;
+	GKHGHorPlus = HorPlus;
+	debugf( NAME_Log, "[KHG] Widescreen: HorPlusFOV=%s", GKHGHorPlus ? "True" : "False" );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
 	char KhgMapArg[256];

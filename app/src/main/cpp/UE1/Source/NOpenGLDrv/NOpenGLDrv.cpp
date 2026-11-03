@@ -645,9 +645,10 @@ void UNOpenGLRenderDevice::SetSceneNode( FSceneNode* Frame )
 	}
 
 	if( Frame->FX != CurrentSceneNode.FX || Frame->FY != CurrentSceneNode.FY ||
-			Viewport->Actor->FovAngle != CurrentSceneNode.FovAngle )
+			Viewport->Actor->FovAngle != CurrentSceneNode.FovAngle || KHGHorPlusScale( Viewport ) != CurrentSceneNode.HorPlus )
 	{
-		RProjZ = appTan( Viewport->Actor->FovAngle * PI / 360.0 );
+		CurrentSceneNode.HorPlus = KHGHorPlusScale( Viewport );   // [KHG] widescreen Hor+
+		RProjZ = appTan( Viewport->Actor->FovAngle * PI / 360.0 ) * CurrentSceneNode.HorPlus;
 		Aspect = Frame->FY / Frame->FX;
 		RFX2 = 2.0f * RProjZ / Frame->FX;
 		RFY2 = 2.0f * RProjZ * Aspect / Frame->FY;

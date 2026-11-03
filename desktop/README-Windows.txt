@@ -67,6 +67,20 @@ The title splash and legal screen are shown at 4:3 with black bars on a
 wider screen, like at the retail game's 4:3 resolutions. A mouse click moves
 on to the next one.
 
+Widescreen
+----------
+By default the field of view works as in the retail game: the angle spans the
+width of the screen, so on a screen wider than 4:3 you see less at the top and
+bottom. Hor+ keeps the 4:3 view from top to bottom and shows more at the sides
+instead. Turn it on in KHGWin.ini, or type HorPlus in the console (it toggles
+and is saved; HorPlus on / HorPlus off also work):
+
+  [KHGWin]
+  HorPlusFOV=True
+
+Gameplay is not affected: the game's own FOV value, zoom and mouse speed stay
+the same. 4:3 and narrower screens look the same either way.
+
 Movies
 ------
 Movies play the way the retail game plays them: on a 640x480 screen (shown 4:3
