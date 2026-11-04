@@ -5,6 +5,7 @@ if(USE_SDL)
   if(TARGET_IS_WINDOWS)
     list(APPEND SRC_FILES "Src/KHGDesktopConfig.cpp")   # [KHG] first-run KHGWin.ini from the retail defaults
     list(APPEND SRC_FILES "Src/KHGLauncher.cpp")       # [KHG] settings window before the game starts
+    list(APPEND SRC_FILES "Src/KHGCrash.cpp")          # [KHG] M9 crash reports
   endif()
 else()
   set(SRC_FILES "Src/WinLaunch.cpp")

@@ -4,6 +4,7 @@
 
 #include <windows.h>   // before Core.h, like SDLLaunch.cpp
 #include <shlobj.h>
+#include <shobjidl.h>  // IFileOpenDialog (game folder picker)
 #include "KHGDesktopConfig.h"
 #include <stdlib.h>
 
@@ -296,8 +297,18 @@ std::string KHGMergeIni( const std::string& Base, const std::string& Overlay )
 namespace
 {
 
-enum EUserDirMode { UDM_Portable, UDM_SavedGames, UDM_CommandLine };
+// UDM_ExeFolder: portable, but KHGWin.exe runs from its own folder (not the install's System folder), so the
+// user files go next to the exe and, like the Saved Games folder, are set up from the install on first run.
+enum EUserDirMode { UDM_Portable, UDM_SavedGames, UDM_CommandLine, UDM_ExeFolder };
 static EUserDirMode GUserDirMode = UDM_Portable;
+static std::string GGameDirStatus, GGameDirToSave;
+
+// First run in a folder of its own (Saved Games, or next to an exe outside the install): bring the install's
+// ini and saves along.
+static bool MigratesFromInstall()
+{
+	return GUserDirMode == UDM_SavedGames || GUserDirMode == UDM_ExeFolder;
+}
 static std::string GUserDirStatus;
 static std::vector<std::string> GMigrationLog;
 
@@ -540,16 +551,16 @@ static std::string MigrateSaves( const std::string& BaseDir, const std::string& 
 
 } // namespace
 
-std::string KHGDesktopChooseUserDir( const char* InBaseDir, const char* CmdLine )
+std::string KHGDesktopChooseUserDir( const char* InExeDir, const char* CmdLine )
 {
-	const std::string BaseDir = InBaseDir ? InBaseDir : "";
+	const std::string BaseDir = InExeDir ? InExeDir : "";
 	std::string Dir;
 	char Arg[1024] = "";
 	if( ParseParam( CmdLine, "PORTABLE" ) || FileExists( BaseDir + "portable.txt" ) )
 	{
 		GUserDirMode = UDM_Portable;
-		GUserDirStatus = ParseParam( CmdLine, "PORTABLE" ) ? "portable (-portable): ini, log and saves in the install"
-		                                                 : "portable (portable.txt): ini, log and saves in the install";
+		GUserDirStatus = ParseParam( CmdLine, "PORTABLE" ) ? "portable (-portable): ini, log and saves next to KHGWin.exe"
+		                                                 : "portable (portable.txt): ini, log and saves next to KHGWin.exe";
 	}
 	else if( Parse( CmdLine, "USERDIR=", Arg, ARRAY_COUNT(Arg) ) && Arg[0] )
 	{
@@ -584,7 +595,205 @@ std::string KHGDesktopChooseUserDir( const char* InBaseDir, const char* CmdLine 
 	return Dir;
 }
 
-void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
+namespace
+{
+
+// A System folder of the retail game: has the engine and the game's own script package.
+static bool IsGameSystemDir( const std::string& Dir )
+{
+	return FileExists( Dir + "Engine.u" ) && FileExists( Dir + "Klingons.u" );
+}
+
+// Dir is the System folder or the folder above it (the install folder). Returns the System folder
+// (full path, trailing separator) or empty.
+static std::string GameSystemDirOf( const std::string& In )
+{
+	if( In.empty() )
+		return std::string();
+	const std::string Dir = WithSlash( FullPath( "", In ) );
+	if( IsGameSystemDir( Dir ) )
+		return Dir;
+	if( IsGameSystemDir( Dir + "System\\" ) )
+		return Dir + "System\\";
+	return std::string();
+}
+
+// Looks for the install near the exe: in each of the exe folder's parents (up to four levels), the
+// parent itself and every folder directly inside it. Finds e.g. <game>\KHGWin\KHGWin.exe next to
+// <game>\System, or builds\<build>\KHGWin.exe next to Installed\System.
+static std::string FindNearExe( const std::string& ExeDir )
+{
+	std::string Dir = WithSlash( FullPath( "", ExeDir ) );
+	for( int Level = 0; Level < 5 && Dir.size() > 3; Level++ )
+	{
+		std::string Found = GameSystemDirOf( Dir );
+		if( !Found.empty() )
+			return Found;
+		WIN32_FIND_DATAA F;
+		HANDLE H = FindFirstFileA( ( Dir + "*" ).c_str(), &F );
+		if( H != INVALID_HANDLE_VALUE )
+		{
+			do
+			{
+				if( ( F.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) && strcmp( F.cFileName, "." ) && strcmp( F.cFileName, ".." ) )
+					Found = GameSystemDirOf( Dir + F.cFileName );
+			} while( Found.empty() && FindNextFileA( H, &F ) );
+			FindClose( H );
+		}
+		if( !Found.empty() )
+			return Found;
+		// Up one level.
+		const size_t Slash = Dir.find_last_of( "\\/", Dir.size() - 2 );
+		if( Slash == std::string::npos )
+			break;
+		Dir = Dir.substr( 0, Slash + 1 );
+	}
+	return std::string();
+}
+
+// Folder dialog. Returns the picked folder, or empty if cancelled.
+static std::string PickFolder( const std::string& Start )
+{
+	std::string Out;
+	const HRESULT Co = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE );
+	IFileOpenDialog* Dlg = NULL;
+	if( SUCCEEDED( CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog, (void**)&Dlg ) ) && Dlg )
+	{
+		DWORD Opt = 0;
+		Dlg->GetOptions( &Opt );
+		Dlg->SetOptions( Opt | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST );
+		Dlg->SetTitle( L"Choose your Klingon Honor Guard folder" );
+		if( !Start.empty() )
+		{
+			wchar_t W[MAX_PATH * 2];
+			IShellItem* Item = NULL;
+			if( MultiByteToWideChar( CP_ACP, 0, Start.c_str(), -1, W, MAX_PATH * 2 ) > 0
+			 && SUCCEEDED( SHCreateItemFromParsingName( W, NULL, IID_IShellItem, (void**)&Item ) ) && Item )
+			{
+				Dlg->SetFolder( Item );
+				Item->Release();
+			}
+		}
+		IShellItem* Result = NULL;
+		if( SUCCEEDED( Dlg->Show( NULL ) ) && SUCCEEDED( Dlg->GetResult( &Result ) ) && Result )
+		{
+			PWSTR Path = NULL;
+			if( SUCCEEDED( Result->GetDisplayName( SIGDN_FILESYSPATH, &Path ) ) && Path )
+			{
+				if( !ToAnsiPath( Path, Out ) )
+				{
+					MessageBoxW( NULL, L"This folder's path has characters KHGWin can't use. Move or rename the game folder and try again.",
+						L"Klingon Honor Guard", MB_OK | MB_ICONWARNING | MB_TOPMOST );
+					Out = "?";
+				}
+				CoTaskMemFree( Path );
+			}
+			Result->Release();
+		}
+		Dlg->Release();
+	}
+	if( SUCCEEDED( Co ) )
+		CoUninitialize();
+	return Out;
+}
+
+} // namespace
+
+bool KHGDesktopChooseGameDir( const char* CmdLine )
+{
+	const std::string ExeDir = appExeDir();
+	const std::string Ini = std::string( appUserDir() ) + appPackage() + ".ini";
+	char Arg[1024] = "";
+	std::string Dir, How;
+
+	// 1. -gamedir=<folder> for this run (the install folder or its System folder).
+	if( Parse( CmdLine, "GAMEDIR=", Arg, ARRAY_COUNT(Arg) ) && Arg[0] )
+	{
+		Dir = GameSystemDirOf( FullPath( ExeDir, Arg ) );
+		if( Dir.empty() )
+			GGameDirStatus = std::string( "WARNING: -gamedir=" ) + Arg + " is not a Klingon Honor Guard folder; ignored. ";
+		else
+			How = "-gamedir";
+	}
+	// 2. The exe is in the install's System folder (the way earlier builds were installed).
+	if( Dir.empty() && !ParseParam( CmdLine, "PICKGAMEDIR" ) && IsGameSystemDir( ExeDir ) )
+		Dir = ExeDir, How = "KHGWin.exe is in it";
+	// 3. The folder chosen before.
+	char Saved[1024] = "";
+	GetPrivateProfileStringA( "KHGWin", "GameDir", "", Saved, sizeof(Saved), Ini.c_str() );
+	if( Dir.empty() && !ParseParam( CmdLine, "PICKGAMEDIR" ) && Saved[0] )
+	{
+		Dir = GameSystemDirOf( FullPath( ExeDir, Saved ) );
+		if( Dir.empty() )
+			GGameDirStatus += std::string( "WARNING: GameDir=" ) + Saved + " in " + Ini + " is not a Klingon Honor Guard folder (any more). ";
+		else
+			How = "GameDir in " + Ini;
+	}
+	// 4. Next to the exe.
+	if( Dir.empty() && !ParseParam( CmdLine, "PICKGAMEDIR" ) )
+	{
+		Dir = FindNearExe( ExeDir );
+		if( !Dir.empty() )
+			How = "found near KHGWin.exe";
+	}
+	// 5. Ask.
+	if( Dir.empty() )
+	{
+		if( ParseParam( CmdLine, "NOGAMEDIRDIALOG" ) )
+		{
+			GGameDirStatus += "no game folder found (-nogamedirdialog)";
+			return false;
+		}
+		MessageBoxA( NULL,
+			"KHGWin runs the game from your own copy of Star Trek: Klingon Honor Guard, and it could not find it.\n\n"
+			"Choose the folder the game is installed in (the one that has the System, Maps and Textures folders) in the next window. "
+			"KHGWin remembers it; nothing in that folder is changed.",
+			"Klingon Honor Guard", MB_OK | MB_ICONINFORMATION | MB_TOPMOST );
+		std::string Start = Saved[0] ? FullPath( ExeDir, Saved ) : ExeDir;
+		for( ;; )
+		{
+			const std::string Picked = PickFolder( Start );
+			if( Picked.empty() )
+			{
+				GGameDirStatus += "no game folder chosen";
+				return false;
+			}
+			Dir = Picked == "?" ? std::string() : GameSystemDirOf( Picked );
+			if( !Dir.empty() )
+			{
+				How = "chosen in the folder dialog";
+				break;
+			}
+			if( Picked != "?" && MessageBoxA( NULL, ( Picked + "\n\nThis folder has no Klingon Honor Guard game files (System\\Engine.u and System\\Klingons.u). "
+				"Choose the folder the game is installed in." ).c_str(), "Klingon Honor Guard", MB_RETRYCANCEL | MB_ICONWARNING | MB_TOPMOST ) != IDRETRY )
+			{
+				GGameDirStatus += "no game folder chosen";
+				return false;
+			}
+			if( Picked != "?" )
+				Start = Picked;
+		}
+	}
+
+	GGameDirStatus += Dir + " (" + How + ")";
+	// Remember it, unless it is the exe's own folder or was only given for this run. Written after
+	// KHGDesktopPrepareConfig(), which creates the ini on the first run.
+	if( How != "KHGWin.exe is in it" && How != "-gamedir" && !SameName( WithSlash( FullPath( ExeDir, Saved ) ), Dir ) )
+		GGameDirToSave = Dir;
+	if( !SameName( Dir, ExeDir ) )
+	{
+		appSetBaseDir( Dir.c_str() );
+		// Portable with the exe in a folder of its own: the user files stay next to the exe.
+		if( GUserDirMode == UDM_Portable )
+		{
+			GUserDirMode = UDM_ExeFolder;
+			appSetUserDir( ExeDir.c_str() );
+		}
+	}
+	return true;
+}
+
+static void PrepareConfig( const char* BaseDir, const char* Package )
 {
 	const std::string Dir = BaseDir ? BaseDir : "";
 	const std::string UserDir = appUserDir();
@@ -620,7 +829,7 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 
 	// First run in the Saved Games folder: carry over the port's ini from the install, if any.
 	std::string OldPortIni;
-	if( GUserDirMode == UDM_SavedGames && ReadText( Dir + Package + ".ini", OldPortIni ) && !OldPortIni.empty() )
+	if( MigratesFromInstall() && ReadText( Dir + Package + ".ini", OldPortIni ) && !OldPortIni.empty() )
 	{
 		const int Have = InputDefaultsIn( OldPortIni );
 		std::string Ini = Have < kInputDefaultsVersion ? ApplyInputDefaults( OldPortIni, Have ) : OldPortIni;
@@ -635,7 +844,7 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 	}
 
 	std::string Overlay;
-	const std::string OverlayPath = Dir + Package + "Defaults.ini";
+	const std::string OverlayPath = std::string( appExeDir() ) + Package + "Defaults.ini";   // ships next to the exe
 	if( !ReadText( OverlayPath, Overlay ) )
 	{
 		GConfigStatus = "WARNING: " + OverlayPath + " is missing; the desktop driver settings were not applied";
@@ -657,7 +866,7 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 		Base.clear();
 
 	std::string Ini = ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 );
-	if( GUserDirMode == UDM_SavedGames )
+	if( MigratesFromInstall() )
 		Ini = MigrateSaves( Dir, UserDir, Ini, std::string() );
 	else if( GUserDirMode == UDM_Portable && IsRetailDefaultPath( IniValue( Ini, "Core.System", "SavePath" ), "Save" ) )
 	{
@@ -678,10 +887,24 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 		: "created " + Target + " from retail " + BaseName + " + " + OverlayPath;
 }
 
+void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
+{
+	PrepareConfig( BaseDir, Package );
+	if( !GGameDirToSave.empty() )
+	{
+		const std::string Ini = std::string( appUserDir() ) + Package + ".ini";
+		if( WritePrivateProfileStringA( "KHGWin", "GameDir", GGameDirToSave.c_str(), Ini.c_str() ) )
+			GGameDirStatus += ", saved as GameDir in " + Ini;
+		GGameDirToSave.clear();
+	}
+}
+
 void KHGDesktopLogConfigStatus()
 {
+	if( !GGameDirStatus.empty() )
+		debugf( NAME_Init, "[KHG] Game folder: %s", GGameDirStatus.c_str() );
 	if( !GUserDirStatus.empty() )
-		debugf( NAME_Init, "[KHG] User files: %s", GUserDirStatus.c_str() );
+		debugf( NAME_Init, "[KHG] User files: %s%s", GUserDirStatus.c_str(), GUserDirMode == UDM_ExeFolder ? " (KHGWin.exe is outside the install)" : "" );
 	if( !GConfigStatus.empty() )
 		debugf( NAME_Init, "[KHG] Desktop config: %s", GConfigStatus.c_str() );
 	for( const std::string& L : GMigrationLog )
@@ -727,7 +950,7 @@ bool KHGDesktopResetConfig( const char* InBaseDir, const char* Package, const ch
 	const std::string Target = IniPath ? IniPath : "";
 	std::string Old, Overlay, Base;
 	ReadText( Target, Old );
-	if( !ReadText( Dir + Package + "Defaults.ini", Overlay ) )
+	if( !ReadText( std::string( appExeDir() ) + Package + "Defaults.ini", Overlay ) )
 		return false;
 	static const char* BaseNames[] = { "Default.ini", "DEFAULT.INI", "default.ini", "Khg.ini", "KHG.INI", "khg.ini" };
 	bool Found = false;

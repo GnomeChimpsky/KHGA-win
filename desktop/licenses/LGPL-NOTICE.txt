@@ -1,0 +1,37 @@
+LGPL components of KHGWin
+=========================
+
+KHGWin uses two libraries under the GNU Lesser General Public License. Both
+are separate DLLs next to KHGWin.exe, loaded at run time, so you can replace
+them with your own builds of the same libraries.
+
+  OpenAL32.dll      OpenAL Soft 1.25.1, LGPL version 2 or later
+                    (OpenAL-Soft.txt)
+  avcodec-60.dll    FFmpeg n6.1.2, LGPL version 2.1 or later
+  avformat-60.dll   (FFmpeg-LGPL-2.1.txt), built as an LGPL-only build
+  avutil-58.dll     (no GPL or non-free parts) with one change of ours,
+  swresample-4.dll  ffmpeg-indeo5-transparency.patch (in this folder):
+  swscale-7.dll     the Indeo 5 decoder also returns the clip's
+                    transparency mask, which the game's briefing movies use.
+
+Source code
+-----------
+The complete source of both libraries, exactly as built for this release,
+is in KHGWin-<version>-lgpl-sources.zip, published next to this release's
+zip. It holds:
+
+  ffmpeg/           FFmpeg n6.1.2 with our patch applied, and
+                    build-ffmpeg.sh, the script with the configure options
+                    used for these DLLs
+  openal-soft/      OpenAL Soft 1.25.1 as vendored in the KHGWin source,
+                    built as a shared library (CMake, LIBTYPE=SHARED, with
+                    the WASAPI backend)
+  ffmpeg-indeo5-transparency.patch
+
+The same sources are in the KHGWin source repository: desktop/patches,
+desktop/scripts/build-ffmpeg.sh, app/src/main/cpp/thirdparty/openal-soft.
+Upstream: https://github.com/FFmpeg/FFmpeg (tag n6.1.2) and
+https://github.com/kcat/openal-soft (1.25.1).
+
+If you got this release without the source zip, ask whoever gave it to you
+for it; they must provide it under the terms of the LGPL.

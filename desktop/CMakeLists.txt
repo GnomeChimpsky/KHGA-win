@@ -117,14 +117,35 @@ target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # M8: frame pacing and the -khgtiming test mode.
 target_sources(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/KHGTiming.cpp")
 # The launcher defines its own WinMain (SDLLaunch.cpp), so SDL2main is not linked.
-target_link_libraries(Unreal xmp_static shell32 ole32)   # shell32/ole32: Saved Games folder (KHGDesktopConfig.cpp)
+target_link_libraries(Unreal xmp_static shell32 ole32 uuid)   # shell32/ole32/uuid: Saved Games folder, game folder dialog (KHGDesktopConfig.cpp)
+
+# M9: build version, from the git tag (vX.Y.Z) or -DKHG_VERSION=...; shown in the log, crash reports and
+# the exe's version info.
+if(NOT KHG_VERSION)
+    execute_process(COMMAND git describe --tags --always --dirty --abbrev=7
+        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}" OUTPUT_VARIABLE KHG_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT KHG_VERSION)
+        set(KHG_VERSION "unknown")
+    endif()
+endif()
+set(KHG_VERSION_NUM "0,0,0,0")
+if(KHG_VERSION MATCHES "^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    set(KHG_VERSION_NUM "${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0")
+endif()
+message(STATUS "KHGWin version: ${KHG_VERSION}")
+# A generated header, not -D flags: windres runs its preprocessor through a shell, which loses the quotes.
+file(WRITE "${CMAKE_BINARY_DIR}/khgversion/KHGVersion.h.tmp"
+    "#define KHG_VERSION \"${KHG_VERSION}\"\n#define KHG_VERSION_NUM ${KHG_VERSION_NUM}\n")
+configure_file("${CMAKE_BINARY_DIR}/khgversion/KHGVersion.h.tmp" "${CMAKE_BINARY_DIR}/khgversion/KHGVersion.h" COPYONLY)
+target_include_directories(Unreal PRIVATE "${CMAKE_BINARY_DIR}/khgversion")
 target_include_directories(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/Res")   # Unreal.ico for KHGWin.rc
 
 # The launcher is installed as KHGWin.exe so it never overwrites the retail Khg.exe.
 set_target_properties(Unreal PROPERTIES OUTPUT_NAME "KHGWin")
 
-# --- Staging: everything that goes into the retail System folder ---
-set(KHG_STAGE_DIR "${CMAKE_BINARY_DIR}/stage/System")
+# --- Staging: the release folder (KHGWin.exe and its files; runs from anywhere, see KHGDesktopChooseGameDir) ---
+set(KHG_STAGE_DIR "${CMAKE_BINARY_DIR}/stage/KHGWin")
 add_custom_target(stage ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${KHG_STAGE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Unreal>" "${KHG_STAGE_DIR}/"

@@ -3,10 +3,13 @@
 #
 # usage: build-windows.sh <i686|x86_64> [ffmpeg-source-dir]
 #
-# Outputs (under build/win32 or build/win64):
-#   stage/System/            files to copy into the retail install's System folder
-#   KHGWin-<arch>.zip        the same files, zipped
-#   KHGWin-<arch>-debug.zip  unstripped KHGWin.exe for crash analysis
+# Outputs (under build/win32 or build/win64), <ver> = git describe (or $KHG_VERSION):
+#   stage/KHGWin/                    the release folder: KHGWin.exe, its DLLs and files, README, licences.
+#                                    Runs from anywhere (it finds or asks for the retail install), or can be
+#                                    copied into the install's System folder like earlier builds.
+#   KHGWin-<ver>-<arch>.zip          that folder, zipped (no game data)
+#   KHGWin-<ver>-<arch>-debug.zip    unstripped KHGWin.exe + symbolize-crash.sh, for crash reports
+# desktop/scripts/package-lgpl-sources.sh makes the matching LGPL source zip.
 #
 # FFmpeg is built once per arch into build/ffmpeg-<arch> (see build-ffmpeg.sh). Pass the FFmpeg
 # source dir, or set FFMPEG_SRC; it defaults to build/ffmpeg-src (git clone of FFmpeg n6.1.2).
@@ -34,27 +37,40 @@ if [ ! -f "$FFMPEG_PREFIX/include/libavcodec/avcodec.h" ] || [ ! -f "$FFMPEG_PRE
   "$ROOT/desktop/scripts/build-ffmpeg.sh" "$ARCH" "$FFMPEG_SRC" "$FFMPEG_PREFIX"
 fi
 
+VERSION="${KHG_VERSION:-$(git -C "$ROOT" describe --tags --always --dirty --abbrev=7 2>/dev/null || echo unknown)}"
+
 cmake -S "$ROOT/desktop" -B "$BUILD" -G Ninja \
+  -DKHG_VERSION="$VERSION" \
   -DCMAKE_TOOLCHAIN_FILE="$ROOT/desktop/cmake/mingw-w64-$ARCH.cmake" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DFFMPEG_ROOT="$FFMPEG_PREFIX"
 rm -rf "$BUILD/stage"
 cmake --build "$BUILD"
 
-STAGE="$BUILD/stage/System"
+STAGE="$BUILD/stage/KHGWin"
 mkdir -p "$BUILD/debug"
 cp "$STAGE/KHGWin.exe" "$BUILD/debug/"
 "$ARCH-w64-mingw32-strip" --strip-unneeded "$STAGE"/*.exe "$STAGE"/*.dll
 cp "$ROOT/desktop/README-Windows.txt" "$STAGE/KHGWin-README.txt"
 mkdir -p "$STAGE/KHGWin-Licenses"
 cp "$ROOT/THIRDPARTY.md" "$STAGE/KHGWin-Licenses/"
+cp "$ROOT/desktop/licenses/LGPL-NOTICE.txt" "$STAGE/KHGWin-Licenses/"
 cp "$ROOT/app/src/main/cpp/thirdparty/SDL2/LICENSE.txt" "$STAGE/KHGWin-Licenses/SDL2.txt"
 cp "$ROOT/app/src/main/cpp/thirdparty/openal-soft/COPYING" "$STAGE/KHGWin-Licenses/OpenAL-Soft.txt"
 cp "$FFMPEG_PREFIX/COPYING.LGPLv2.1" "$STAGE/KHGWin-Licenses/FFmpeg-LGPL-2.1.txt"
 cp "$ROOT"/desktop/patches/ffmpeg-*.patch "$STAGE/KHGWin-Licenses/"   # our FFmpeg changes (LGPL)
 cp "$ROOT/app/src/main/cpp/thirdparty/libxmp/docs/COPYING" "$STAGE/KHGWin-Licenses/libxmp.txt"
+cp "$ROOT/app/src/main/cpp/UE1/Source/ZVulkan/LICENSE.md" "$STAGE/KHGWin-Licenses/ZVulkan-volk-VMA-glslang.txt"
+# MinGW-w64 runtime (statically linked C runtime start-up code).
+if [ -f /usr/share/doc/mingw-w64-common/copyright ]; then
+  cp /usr/share/doc/mingw-w64-common/copyright "$STAGE/KHGWin-Licenses/MinGW-w64-runtime.txt"
+fi
+echo "$VERSION" > "$STAGE/KHGWin-version.txt"
 
-rm -f "$BUILD/KHGWin-$NAME.zip" "$BUILD/KHGWin-$NAME-debug.zip"
-(cd "$BUILD/stage" && zip -qr "$BUILD/KHGWin-$NAME.zip" System)
-(cd "$BUILD/debug" && zip -q "$BUILD/KHGWin-$NAME-debug.zip" KHGWin.exe)
-echo "Packaged $BUILD/KHGWin-$NAME.zip"
+cp "$ROOT/desktop/scripts/symbolize-crash.sh" "$BUILD/debug/"
+ZIP="$BUILD/KHGWin-$VERSION-$NAME.zip"
+DEBUGZIP="$BUILD/KHGWin-$VERSION-$NAME-debug.zip"
+rm -f "$BUILD"/KHGWin-*.zip
+(cd "$BUILD/stage" && zip -qr "$ZIP" KHGWin)
+(cd "$BUILD/debug" && zip -q "$DEBUGZIP" KHGWin.exe symbolize-crash.sh)
+echo "Packaged $ZIP"

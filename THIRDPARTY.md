@@ -24,7 +24,7 @@ Unreal® and the Unreal Engine are trademarks of Epic Games, Inc.
 | OpenAL Soft | 1.25.1 | OpenAL-compatible audio backend | LGPL-2.0-or-later |
 | libxmp | bundled | Tracker/module music decoding (UMX) | see bundled `libxmp` license |
 | FFmpeg | LGPL build | Cutscene (FMV/AVI) video + audio decoding | LGPL-2.1-or-later |
-| ZVulkan / volk / VMA | bundled | Vulkan loader + memory allocation helpers (renderer) | MIT (see source headers) |
+| ZVulkan / volk / VMA / glslang | bundled | Vulkan loader, memory allocation, shader compiler (renderer) | zlib / MIT / BSD-3 (`UE1/Source/ZVulkan/LICENSE.md`) |
 | glad_es | bundled | GL ES loader (legacy GLES path) | MIT / public-domain generator |
 
 Refer to each component's upstream project and the license headers in its
@@ -45,6 +45,14 @@ licence texts): the Indeo 5 decoder also decodes the clip's transparency mask, w
 the game's briefing movies use, and returns it as frame side data. The patch is under
 the same LGPL-2.1-or-later licence as FFmpeg. The same DLLs also decode ripped CD-audio tracks (Ogg Vorbis/Opus, FLAC, MP3,
 WAV) for the game's CD music; only LGPL decoders are enabled.
+
+## Windows release (KHGWin)
+
+A KHGWin release zip carries these notices in `KHGWin-Licenses/`: SDL2, OpenAL Soft, FFmpeg
+(LGPL text and our patch), libxmp, ZVulkan/volk/VMA/glslang, the MinGW-w64 runtime, this file, and
+`LGPL-NOTICE.txt` (`desktop/licenses/`), which says which DLLs are LGPL and where their source is.
+`desktop/scripts/package-lgpl-sources.sh` builds `KHGWin-<ver>-lgpl-sources.zip` with the exact
+FFmpeg and OpenAL Soft sources of a release; CI publishes it next to the release zips.
 
 ## Build tooling
 

@@ -6,12 +6,30 @@ retail copy of Star Trek: Klingon Honor Guard installed.
 
 Install
 -------
-1. Copy everything in this folder into the System folder of your retail install
-   (the folder that contains Khg.exe). Nothing in it replaces a retail file.
-   Installs under Program Files work too.
+1. Unzip the KHGWin folder anywhere, for example next to the game's folder
+   or in your Documents. It doesn't need to be installed.
 2. Run KHGWin.exe.
 
+The first time, KHGWin looks for the game: in its own folder, then in the
+folders around it (so a KHGWin folder inside or next to the game's folder is
+found). If it can't find it, it asks you for the folder you installed the game
+in (the one with the System, Maps and Textures folders) and remembers it, as
+GameDir in KHGWin.ini. To choose another one later, start KHGWin.exe with
+-pickgamedir, or use -gamedir=<folder> for one run.
+
+You can also copy the files into the System folder of your retail install
+(the folder that contains Khg.exe), as earlier builds were installed; nothing
+in it replaces a retail file. Installs under Program Files work either way.
+
 Requirements: Windows 10 or 11 and a GPU with a Vulkan driver.
+
+If it crashes
+-------------
+KHGWin saves a crash report in the Crashes folder next to your settings
+(Saved Games\Klingon Honor Guard\Crashes) and tells you where it is:
+KHGWin-<date>-<time>.txt (what happened, readable), .dmp (a crash dump for a
+debugger) and .log (the game log up to the crash). Send all three along with
+a bug report. KHGWin-version.txt says which build you have.
 
 Launcher
 --------
@@ -73,9 +91,13 @@ Save compatibility (64-bit and 32-bit KHGWin, the retail game) is listed in
 docs/Saves.md in the source.
 
 Portable mode: put an empty file named portable.txt next to KHGWin.exe
-(or start it with -portable) and KHGWin keeps KHGWin.ini, KHGWin.log and
-screenshots in the System folder and saves in the install's Save folder,
-shared with the retail game, the way the retail game does it.
+(or start it with -portable) and KHGWin keeps its files next to KHGWin.exe
+instead of in Saved Games. When KHGWin.exe is in the install's System folder
+that means KHGWin.ini, KHGWin.log and screenshots in the System folder and
+saves in the install's Save folder, shared with the retail game, the way the
+retail game does it. When it runs from a folder of its own, everything
+(including Save\ and Crashes\) goes in that folder, set up from the install
+the same way as the Saved Games folder.
 -userdir=<folder> uses another folder instead of Saved Games.
 
 Movement is set to W/S (forward/back) and A/D (strafe) with mouse look,

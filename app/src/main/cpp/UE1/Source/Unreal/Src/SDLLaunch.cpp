@@ -16,6 +16,7 @@
 #include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
 #include "KHGTiming.h"   // [KHG] M8 frame pacing and -khgtiming (desktop build)
 #include "KHGLauncher.h"        // [KHG] settings window before the game starts (desktop build)
+#include "KHGCrash.h"           // [KHG] M9 crash reports (desktop build)
 #endif
 #ifdef PLATFORM_ANDROID
 #include <android/log.h>
@@ -3919,7 +3920,17 @@ void HandleError()
 	GObj.ShutdownAfterError();
 	debugf( NAME_Exit, "Exiting due to exception" );
 	GErrorHist[ARRAY_COUNT(GErrorHist)-1]=0;
+#ifdef PLATFORM_WIN32
+	// [KHG] M9: write a crash report (KHGCrash.cpp) and say where it is.
+	const char* Report = KHGCrashReportError( GErrorHist );
+	debugf( NAME_Exit, "[KHG] Crash report: %s", Report && Report[0] ? Report : "not written" );
+	static char Msg[ARRAY_COUNT(GErrorHist) + 1024];
+	appSprintf( Msg, "%s\n\n%s%s", GErrorHist, Report && Report[0] ? "A crash report was saved:\n" : "No crash report could be written.", Report ? Report : "" );
+	if( !ParseParam( appCmdLine(), "KHGNOCRASHDIALOG" ) )
+		SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR, LocalizeError("Critical"), Msg, SDL_GetKeyboardFocus() );
+#else
 	SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR, LocalizeError("Critical"), GErrorHist, SDL_GetKeyboardFocus() );
+#endif
 }
 
 //
@@ -3940,6 +3951,7 @@ UEngine* InitEngine()
 	// Platform init.
 	appInit();
 #ifdef PLATFORM_WIN32
+	debugf( NAME_Init, "[KHG] KHGWin %s (%s)", KHGBuildVersion(), sizeof(void*) == 8 ? "64-bit" : "32-bit" );
 	KHGDesktopLogConfigStatus();   // [KHG] report how KHGWin.ini was set up (KHGDesktopConfig.cpp)
 	KHGDesktopApplyUserPaths();    // [KHG] saves in the user folder unless the ini names its own Save folder
 	{
@@ -4873,7 +4885,13 @@ int main( int argc, const char** argv )
 #ifdef PLATFORM_WIN32
 	// [KHG] Desktop build: create KHGWin.ini from the retail defaults before appInit() loads it.
 	// [KHG] Ini, log and saves go to Saved Games\Klingon Honor Guard unless portable (KHGDesktopConfig.cpp).
-	KHGDesktopChooseUserDir( appBaseDir(), appCmdLine() );
+	KHGDesktopChooseUserDir( appExeDir(), appCmdLine() );
+	// [KHG] M9: KHGWin.exe can run from a folder of its own; find the retail install (or ask for it) and run
+	// in its System folder, as the retail ini's relative paths (..\Maps etc.) expect.
+	if( !KHGDesktopChooseGameDir( appCmdLine() ) )
+		TerminateProcess( GetCurrentProcess(), 1 );   // nothing initialised yet (see the launcher's Quit below)
+	appChdir( appBaseDir() );
+	KHGCrashInstall();   // [KHG] M9: crash reports in <user folder>Crashes (KHGCrash.cpp)
 	KHGDesktopPrepareConfig( appBaseDir(), appPackage() );
 	{
 		// [KHG] Launcher: settings the game's menus can't change, before appInit() reads KHGWin.ini (KHGLauncher.cpp).
@@ -4915,6 +4933,22 @@ int main( int argc, const char** argv )
 #endif
 #ifdef PLATFORM_ANDROID
 			__android_log_print( ANDROID_LOG_INFO, "UE1Android", "InitEngine end: Engine=%p GIsRequestingExit=%d GIsCriticalError=%d", Engine, GIsRequestingExit, GIsCriticalError );
+#endif
+#ifdef PLATFORM_WIN32
+			{
+				// [KHG] M9: -khgcrashtest=av|error|abort tests the crash reports.
+				char Crash[32] = "";
+				if( Parse( appCmdLine(), "KHGCRASHTEST=", Crash, ARRAY_COUNT(Crash) ) )
+				{
+					debugf( NAME_Log, "[KHG] Crash test: %s", Crash );
+					if( !appStricmp( Crash, "error" ) )
+						appErrorf( "Crash test (-khgcrashtest=error)" );
+					else if( !appStricmp( Crash, "abort" ) )
+						abort();
+					else
+						*(volatile INT*)(PTRINT)16 = 1;
+				}
+			}
 #endif
 			if( !GIsRequestingExit )
 			{

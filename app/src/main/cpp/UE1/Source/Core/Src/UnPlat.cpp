@@ -3011,8 +3011,27 @@ CORE_API const char* appCmdLine()
 	unguard;
 }
 
+// [KHG] The desktop build can run from its own folder: the System folder of the retail install is then
+// set with appSetBaseDir() before appInit(), and appExeDir() is the folder of KHGWin.exe (and of the port's
+// own files: KHGWin.int, KHGWinDefaults.ini, portable.txt). Without an override both are the exe folder.
+static char GBaseDirOverride[1024]="";
+CORE_API void appSetBaseDir( const char* Dir )
+{
+	appStrncpy( GBaseDirOverride, Dir ? Dir : "", ARRAY_COUNT(GBaseDirOverride) );
+}
+
 // Get startup directory.
 CORE_API const char* appBaseDir()
+{
+#if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
+	return appAndroidUnrealSystemDir();
+#else
+	return GBaseDirOverride[0] ? GBaseDirOverride : appExeDir();
+#endif
+}
+
+// [KHG] Folder of the executable (trailing separator).
+CORE_API const char* appExeDir()
 {
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 	return appAndroidUnrealSystemDir();

@@ -13,12 +13,25 @@
 #include <string>
 
 // Picks the folder for KHGWin.ini, KHGWin.log, saves and screenshots, and passes it to appSetUserDir().
-// Call before appInit(), with the System directory (trailing separator) and the command line:
-//   -portable, or a portable.txt next to the exe: the System folder itself (saves in ..\Save, like retail)
-//   -userdir=DIR: DIR (relative to the System folder unless absolute); no migration
+// Call before appInit(), with the exe's folder (trailing separator) and the command line:
+//   -portable, or a portable.txt next to the exe: the exe's folder. When that is the install's System
+//            folder, saves go to ..\Save like retail; when the exe runs from a folder of its own (see
+//            KHGDesktopChooseGameDir), the ini, log and saves stay next to the exe, set up like Saved Games.
+//   -userdir=DIR: DIR (relative to the exe's folder unless absolute); no migration
 //   otherwise: <Saved Games>\Klingon Honor Guard\, set up on first run from the install (see below)
 // Returns the folder, with a trailing separator.
 std::string KHGDesktopChooseUserDir( const char* BaseDir, const char* CmdLine );
+
+// Finds the retail install and, when it isn't the exe's own folder, passes its System folder to
+// appSetBaseDir(). Call after KHGDesktopChooseUserDir() and before KHGDesktopPrepareConfig(). In order:
+//   -gamedir=DIR for this run (the install folder or its System folder)
+//   the exe's folder, if it is the install's System folder (unless -pickgamedir)
+//   [KHGWin] GameDir in the ini, the folder found or chosen before (unless -pickgamedir)
+//   a System folder near the exe: in any of its parent folders or the folders directly inside them
+//   else a folder dialog (not with -nogamedirdialog)
+// A folder that was found or chosen is saved as GameDir by KHGDesktopPrepareConfig(). Returns false when
+// no install was found or chosen (the caller quits).
+bool KHGDesktopChooseGameDir( const char* CmdLine );
 
 // Builds <UserDir><Package>.ini if it doesn't exist yet. Call after KHGDesktopChooseUserDir() and before
 // appInit(). In the Saved Games folder the first run migrates the install: an existing System\KHGWin.ini is

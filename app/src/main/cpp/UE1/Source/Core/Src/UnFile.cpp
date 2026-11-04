@@ -2012,7 +2012,14 @@ TryAgain:
 	static char Results[8][256];
 	static INT iResult=0;
 	iResult = (iResult+1) % ARRAY_COUNT(Results);
-	if( !GetConfigString( Section, Key, Results[iResult], ARRAY_COUNT(Results[0]), Filename ) )
+	UBOOL Found = GetConfigString( Section, Key, Results[iResult], ARRAY_COUNT(Results[0]), Filename );
+	if( !Found && appStricmp( appExeDir(), appBaseDir() )!=0 )
+	{
+		// [KHG] The port's own .int files (KHGWin.int) sit next to the exe when it runs from its own folder.
+		snprintf( Filename, sizeof(Filename), "%s%s.%s", appExeDir(), Package, LangExt );
+		Found = GetConfigString( Section, Key, Results[iResult], ARRAY_COUNT(Results[0]), Filename );
+	}
+	if( !Found )
 	{
 		if( appStricmp(LangExt,"int")!=0 )
 		{

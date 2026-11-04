@@ -365,13 +365,24 @@ std::vector<std::string> VulkanDevices()
 	return Names;
 }
 
+// Folder of KHGWin.exe (with a trailing backslash): the port's own files (OpenAL32.dll, portable.txt) live
+// there, which is not the install's System folder when the exe runs from a folder of its own.
+static std::string ExeDir()
+{
+	char Path[MAX_PATH * 2] = "";
+	const DWORD N = GetModuleFileNameA( NULL, Path, sizeof(Path) );
+	std::string P( Path, N < sizeof(Path) ? N : 0 );
+	const size_t Slash = P.find_last_of( "\\/" );
+	return Slash == std::string::npos ? std::string( ".\\" ) : P.substr( 0, Slash + 1 );
+}
+
 // OpenAL output device names (UTF-8), as alcOpenDevice() takes them.
 std::vector<std::string> AudioDevices( const std::string& BaseDir )
 {
 	std::vector<std::string> Names;
 	typedef const char* (__cdecl *FGetString)( void*, int );
 	typedef char        (__cdecl *FIsExt)( void*, const char* );
-	HMODULE Lib = LoadLibraryA( ( BaseDir + "OpenAL32.dll" ).c_str() );
+	HMODULE Lib = LoadLibraryA( ( ExeDir() + "OpenAL32.dll" ).c_str() );
 	if( !Lib )
 		Lib = LoadLibraryA( "OpenAL32.dll" );
 	if( !Lib )
@@ -806,7 +817,7 @@ struct FLauncher
 				"Saved Games. Takes effect the next time you start KHGWin. The two places keep separate settings and saves. "
 				"Works by putting portable.txt next to KHGWin.exe." );
 			I.Special = SP_Portable;
-			I.InitialCheck = GetFileAttributesA( ( BaseDir + "portable.txt" ).c_str() ) != INVALID_FILE_ATTRIBUTES;
+			I.InitialCheck = GetFileAttributesA( ( ExeDir() + "portable.txt" ).c_str() ) != INVALID_FILE_ATTRIBUTES;
 			Place( I );
 		}
 
@@ -898,7 +909,7 @@ struct FLauncher
 				continue;
 			if( I.Special == SP_Portable )
 			{
-				const std::string Marker = BaseDir + "portable.txt";
+				const std::string Marker = ExeDir() + "portable.txt";
 				if( SendMessageA( I.Ctrl, BM_GETCHECK, 0, 0 ) == BST_CHECKED )
 				{
 					HANDLE F = CreateFileA( Marker.c_str(), GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
