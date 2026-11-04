@@ -7,7 +7,7 @@ rem   4. 64-bit: load the saves the 32-bit build wrote
 rem Test saves go in builds\tools\TestSaves, not in the game's Save folder.
 rem Logs: builds\tools\SaveTest-<build>-<step>.log. Copies only KHGWin files into Installed\System.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=8c8f031
+if "%BUILD%"=="" set BUILD=6fa906a
 set TOOLS=%~dp0
 set SYS=%~dp0..\..\Installed\System
 set SAVES=%~dp0TestSaves

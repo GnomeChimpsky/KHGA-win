@@ -5,7 +5,7 @@ rem Copies only the KHGWin files into Installed\System, like RenderShots.bat. Th
 rem In the retail game the same spot is: Tab, "open m19", then Tab and the two lines from Spots\m19.txt.
 setlocal
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=8c8f031
+if "%BUILD%"=="" set BUILD=6fa906a
 set MAPS=%2 %3 %4 %5 %6 %7 %8 %9
 if "%~2"=="" set MAPS=m19 m20b
 set TOOLS=%~dp0
