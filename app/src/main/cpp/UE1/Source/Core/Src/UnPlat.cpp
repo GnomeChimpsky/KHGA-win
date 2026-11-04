@@ -2976,6 +2976,22 @@ CORE_API void appSetCmdLine( INT Argc, const char** Argv )
 	CmdLine = CmdLineBuf;
 	for( INT i = 1; i < Argc; ++i )
 	{
+#ifdef PLATFORM_WIN32
+		// [KHG] The C runtime took the quotes off: put them back around an argument with spaces, after its
+		// '=' when it has one, so Parse() reads -gamedir="C:\Some Folder" or LOG="..." whole (see appCmdLine).
+		const char* Space = strchr( Argv[i], ' ' );
+		if( Space && !strchr( Argv[i], '"' ) )
+		{
+			const char* Eq = strchr( Argv[i], '=' );
+			char Quoted[1024];
+			if( Eq && Eq < Space )
+				snprintf( Quoted, sizeof(Quoted), "%.*s\"%s\"", (int)( Eq + 1 - Argv[i] ), Argv[i], Eq + 1 );
+			else
+				snprintf( Quoted, sizeof(Quoted), "\"%s\"", Argv[i] );
+			appStrncat( CmdLineBuf, Quoted, sizeof(CmdLineBuf) - 1 );
+		}
+		else
+#endif
 		appStrncat( CmdLineBuf, Argv[i], sizeof(CmdLineBuf) - 1 );
 		if( i != Argc - 1 )
 			appStrncat( CmdLineBuf, " ", sizeof(CmdLineBuf) - 1 );
@@ -2989,6 +3005,12 @@ CORE_API const char* appCmdLine()
 {
 	guard(appCmdLine);
 #ifdef PLATFORM_WIN32
+	if( !CmdLine && __argc > 1 && __argv )
+	{
+		// [KHG] Built from the C runtime's argv, so an argument quoted as a whole ("-gamedir=C:\Some Folder",
+		// as shortcuts, PowerShell or other launchers pass it) reads the same as -gamedir="C:\Some Folder".
+		appSetCmdLine( __argc, (const char**)__argv );
+	}
 	if( !CmdLine )
 	{
 		CmdLine = GetCommandLine();

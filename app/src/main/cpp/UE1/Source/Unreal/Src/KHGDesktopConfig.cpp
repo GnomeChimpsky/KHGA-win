@@ -294,6 +294,263 @@ std::string KHGMergeIni( const std::string& Base, const std::string& Overlay )
 	return Write( Out );
 }
 
+/*-----------------------------------------------------------------------------
+	Mods: keys a retail-style mod installer writes to Khg.ini (KHG Restored, for one).
+
+	KHGWin keeps its own KHGWin.ini, so a mod that edits System\Khg.ini would never reach it. On every
+	start the keys below are compared with Khg.ini: a key whose Khg.ini value changed since the last
+	start (or, the first time, differs from Default.ini) is copied into KHGWin.ini, and a key that left
+	Khg.ini (a mod's uninstaller) leaves KHGWin.ini too. What was seen is kept in [KHGWin.ModSync], so a
+	value changed by hand in KHGWin.ini stays until Khg.ini changes that key again.
+	  - [Engine.Engine] DefaultGame, DefaultServerGame (the game types a mod replaces)
+	  - [Engine.GameEngine] ServerPackages[], [Core.System] Paths[]
+	  - [Klingons.KlingonMenuServer] GameType, Games[]; NumPlayerClasses and SinglePlayerMesh[] of
+	    [Klingons.KlingonMenuMesh] / [Klingons.KlingonMenuSinglePlayer] (extra player models)
+	  - every section of a package that isn't part of the game or the port ([KHGRestored.*], ...)
+	Key binds, bots, driver and port settings are never touched. [KHGWin] ModSync=False turns it off.
+-----------------------------------------------------------------------------*/
+
+namespace
+{
+
+static const char* const kModSyncSection = "KHGWin.ModSync";
+
+// Packages of the game, the retail drivers and the port: their sections are left alone, apart from the keys below.
+static const char* const kKnownPackages[] =
+{
+	"Core", "Engine", "Editor", "UnrealEd", "Klingons", "Fire", "Render", "IpDrv", "IpServer", "WinDrv", "Window",
+	"SoftDrv", "GlideDrv", "D3DDrv", "SGLDrv", "OGlDrv", "MetalDrv", "OpenGLDrv", "Galaxy", "SoundDrv", "NSDLDrv",
+	"NOpenGLDrv", "NOpenALDrv", "VulkanDrv", "UBrowser", "UWindow", "KHGWin",
+};
+
+// Keys copied from the game's own sections; "Name[]" means every Name[n].
+struct FModKey { const char* Section; const char* Key; };
+static const FModKey kModKeys[] =
+{
+	{ "Engine.Engine", "DefaultGame" },
+	{ "Engine.Engine", "DefaultServerGame" },
+	{ "Engine.GameEngine", "ServerPackages[]" },
+	{ "Core.System", "Paths[]" },
+	{ "Klingons.KlingonMenuServer", "GameType" },
+	{ "Klingons.KlingonMenuServer", "Games[]" },
+	{ "Klingons.KlingonMenuMesh", "NumPlayerClasses" },
+	{ "Klingons.KlingonMenuSinglePlayer", "NumPlayerClasses" },
+	{ "Klingons.KlingonMenuSinglePlayer", "SinglePlayerMesh[]" },
+};
+
+static bool IsModSection( const std::string& Name )
+{
+	const size_t Dot = Name.find( '.' );
+	if( Dot == std::string::npos || Dot == 0 )
+		return false;
+	const std::string Pkg = Name.substr( 0, Dot );
+	for( const char* K : kKnownPackages )
+		if( SameName( Pkg, K ) )
+			return false;
+	return true;
+}
+
+static bool IsModKey( const std::string& Section, const std::string& Key )
+{
+	if( IsModSection( Section ) )
+		return true;
+	for( const FModKey& M : kModKeys )
+	{
+		if( !SameName( Section, M.Section ) )
+			continue;
+		const std::string K = M.Key;
+		if( K.size() > 2 && K.compare( K.size() - 2, 2, "[]" ) == 0 )
+		{
+			const std::string Base = K.substr( 0, K.size() - 2 );
+			if( Key.size() > Base.size() + 2 && strncasecmp( Key.c_str(), Base.c_str(), Base.size() ) == 0
+			 && Key[Base.size()] == '[' && Key.back() == ']' )
+				return true;
+		}
+		else if( SameName( Key, K ) )
+			return true;
+	}
+	return false;
+}
+
+// "Section/Key" -> the values of its lines, in order (several lines of one key are kept together).
+typedef std::vector<std::pair<std::string, std::vector<std::string>>> FModValues;
+
+static std::vector<std::string>* FindValues( FModValues& V, const std::string& Id )
+{
+	for( auto& E : V )
+		if( SameName( E.first, Id ) )
+			return &E.second;
+	return nullptr;
+}
+
+static std::string ValueOf( const std::string& Line )
+{
+	const size_t Eq = Line.find( '=' );
+	return Eq == std::string::npos ? std::string() : Trim( Line.substr( Eq + 1 ) );
+}
+
+static FModValues ModValues( const std::string& Ini )
+{
+	FModValues Out;
+	for( const FIniSection& S : Parse( Ini ) )
+	{
+		if( S.Name.empty() || SameName( S.Name, kModSyncSection ) )
+			continue;
+		for( const FIniLine& L : S.Lines )
+		{
+			const std::string Key = KeyOf( L.Text );
+			if( Key.empty() || !IsModKey( S.Name, Key ) )
+				continue;
+			const std::string Id = S.Name + "/" + Key;
+			std::vector<std::string>* V = FindValues( Out, Id );
+			if( !V )
+			{
+				Out.push_back( { Id, {} } );
+				V = &Out.back().second;
+			}
+			V->push_back( ValueOf( L.Text ) );
+		}
+	}
+	return Out;
+}
+
+// [KHGWin.ModSync] of the port ini: one "Section/Key=Value" line per value seen in Khg.ini last time.
+static bool SeenValues( const std::string& Ini, FModValues& Out )
+{
+	bool Have = false;
+	for( const FIniSection& S : Parse( Ini ) )
+		if( SameName( S.Name, kModSyncSection ) )
+		{
+			Have = true;
+			for( const FIniLine& L : S.Lines )
+			{
+				const std::string Id = KeyOf( L.Text );
+				if( Id.empty() || Id.find( '/' ) == std::string::npos )
+					continue;
+				std::vector<std::string>* V = FindValues( Out, Id );
+				if( !V )
+				{
+					Out.push_back( { Id, {} } );
+					V = &Out.back().second;
+				}
+				V->push_back( ValueOf( L.Text ) );
+			}
+		}
+	return Have;
+}
+
+static bool SameValues( const std::vector<std::string>* A, const std::vector<std::string>* B )
+{
+	if( !A || !B )
+		return A == B;
+	if( A->size() != B->size() )
+		return false;
+	for( size_t i = 0; i < A->size(); i++ )
+		if( (*A)[i] != (*B)[i] )
+			return false;
+	return true;
+}
+
+static void RemoveKey( std::vector<FIniSection>& Sections, const std::string& Section, const std::string& Key )
+{
+	FIniSection* S = Find( Sections, Section );
+	if( !S )
+		return;
+	for( size_t i = 0; i < S->Lines.size(); )
+	{
+		if( SameName( KeyOf( S->Lines[i].Text ), Key ) )
+			S->Lines.erase( S->Lines.begin() + i );
+		else
+			i++;
+	}
+}
+
+} // namespace
+
+std::string KHGSyncModKeys( const std::string& PortIni, const std::string& RetailIni, const std::string& DefaultIni,
+	std::vector<std::string>* Log )
+{
+	FModValues Now = ModValues( RetailIni ), Seen;
+	if( !SeenValues( PortIni, Seen ) )
+		Seen = ModValues( DefaultIni );   // first time: whatever Khg.ini changed from the retail defaults
+
+	std::vector<FIniSection> Out = Parse( PortIni );
+	auto Changed = [&]( const std::string& Id, const std::vector<std::string>* Values )
+	{
+		const size_t Slash = Id.find( '/' );
+		const std::string Section = Id.substr( 0, Slash ), Key = Id.substr( Slash + 1 );
+		// Replace the key where it is (keeps the section's order), else add it at the end of its section.
+		size_t At = std::string::npos;
+		if( FIniSection* S = Find( Out, Section ) )
+			for( size_t i = 0; i < S->Lines.size() && At == std::string::npos; i++ )
+				if( SameName( KeyOf( S->Lines[i].Text ), Key ) )
+					At = i;
+		RemoveKey( Out, Section, Key );
+		if( Values )
+		{
+			FIniSection* S = Find( Out, Section );
+			if( !S )
+			{
+				Out.push_back( FIniSection() );
+				Out.back().Name = Section;
+				S = &Out.back();
+			}
+			if( At == std::string::npos )
+				for( const std::string& V : *Values )
+					Append( *S, Key + "=" + V );
+			else
+				for( size_t i = 0; i < Values->size(); i++ )
+					S->Lines.insert( S->Lines.begin() + At + i, { Key + "=" + (*Values)[i] } );
+		}
+		if( Log )
+			Log->push_back( Values ? "[" + Section + "] " + Key + "=" + ( Values->empty() ? std::string() : Values->front() )
+			                       : "[" + Section + "] " + Key + " removed (no longer in Khg.ini)" );
+	};
+	for( const auto& E : Now )
+	{
+		const std::vector<std::string>* Before = FindValues( Seen, E.first );
+		// An empty slot that wasn't there before (Games[9]=, Paths[12]=) changes nothing.
+		bool Empty = true;
+		for( const std::string& V : E.second )
+			Empty = Empty && V.empty();
+		if( !Before && Empty )
+			continue;
+		if( !SameValues( &E.second, Before ) )
+			Changed( E.first, &E.second );
+	}
+	for( const auto& E : Seen )
+		if( !FindValues( Now, E.first ) )
+			Changed( E.first, nullptr );
+
+	// A mod's section left with no keys (its uninstaller ran) goes too.
+	for( size_t i = 0; i < Out.size(); )
+	{
+		bool Empty = IsModSection( Out[i].Name );
+		for( const FIniLine& L : Out[i].Lines )
+			Empty = Empty && Trim( L.Text ).empty();
+		if( Empty )
+			Out.erase( Out.begin() + i );
+		else
+			i++;
+	}
+
+	// Remember what Khg.ini says now.
+	for( size_t i = 0; i < Out.size(); )
+	{
+		if( SameName( Out[i].Name, kModSyncSection ) )
+			Out.erase( Out.begin() + i );
+		else
+			i++;
+	}
+	Out.push_back( FIniSection() );
+	Out.back().Name = kModSyncSection;
+	for( const auto& E : Now )
+		for( const std::string& V : E.second )
+			Out.back().Lines.push_back( { E.first + "=" + V } );
+	Out.back().Lines.push_back( { "" } );
+	return Write( Out );
+}
+
 namespace
 {
 
@@ -944,9 +1201,42 @@ static void PrepareConfig( const char* BaseDir, const char* Package )
 		: "created " + Target + " from retail " + BaseName + " + " + OverlayPath;
 }
 
+// Mods: brings KHGWin.ini up to date with the mod keys of Khg.ini (see KHGSyncModKeys). Every start.
+static std::vector<std::string> GModSyncLog;
+static void SyncMods( const std::string& Dir, const std::string& Target )
+{
+	std::string Port, Retail, Where, Default;
+	if( !ReadText( Target, Port ) || Port.empty() )
+		return;
+	const std::string Off = IniValue( Port, "KHGWin", "ModSync" );
+	if( SameName( Off, "False" ) || Off == "0" )
+	{
+		GModSyncLog.push_back( "off ([KHGWin] ModSync=False)" );
+		return;
+	}
+	if( !ReadRetailIni( Dir, Retail, Where ) )
+		return;
+	static const char* DefaultNames[] = { "Default.ini", "DEFAULT.INI", "default.ini" };
+	for( const char* Name : DefaultNames )
+		if( ReadText( Dir + Name, Default ) )
+			break;
+	std::vector<std::string> Changes;
+	const std::string Synced = KHGSyncModKeys( Port, Retail, Default, &Changes );
+	if( Synced == Port )
+		return;
+	if( !WriteText( Target, Synced ) )
+	{
+		GModSyncLog.push_back( "WARNING: could not write " + Target );
+		return;
+	}
+	for( const std::string& C : Changes )
+		GModSyncLog.push_back( C + " (from " + Where + ")" );
+}
+
 void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package )
 {
 	PrepareConfig( BaseDir, Package );
+	SyncMods( BaseDir ? BaseDir : "", std::string( appUserDir() ) + Package + ".ini" );
 	if( !GGameDirToSave.empty() )
 	{
 		const std::string Ini = std::string( appUserDir() ) + Package + ".ini";
@@ -966,6 +1256,8 @@ void KHGDesktopLogConfigStatus()
 		debugf( NAME_Init, "[KHG] Desktop config: %s", GConfigStatus.c_str() );
 	for( const std::string& L : GMigrationLog )
 		debugf( NAME_Init, "[KHG] Migration: %s", L.c_str() );
+	for( const std::string& L : GModSyncLog )
+		debugf( NAME_Init, "[KHG] Mods: %s", L.c_str() );
 }
 
 void KHGDesktopApplyUserPaths()
@@ -1028,5 +1320,6 @@ bool KHGDesktopResetConfig( const char* InBaseDir, const char* Package, const ch
 		MoveFileA( Backup.c_str(), Target.c_str() );
 		return false;
 	}
+	SyncMods( Dir, Target );   // a mod installed through Khg.ini stays on
 	return true;
 }

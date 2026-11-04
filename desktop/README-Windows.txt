@@ -105,6 +105,21 @@ and the controller layout below replaces the retail joystick bindings;
 this is applied once to an existing KHGWin.ini too. Change keys in the
 game's controls menu as usual. Delete KHGWin.ini to start fresh.
 
+Mods
+----
+Mods made for the retail game (KHG Restored, for one) install the usual
+way: run the mod's own installer, or copy its files into the System folder
+and edit Khg.ini as its readme says. You can install the mod before or
+after KHGWin. On every start KHGWin brings the keys such mods change in
+Khg.ini over into KHGWin.ini: the game types (DefaultGame,
+DefaultServerGame and the server menu's game list), ServerPackages, Paths,
+the player model menus, and the mod's own settings sections, for example
+[KHGRestored.KHGRestoreHelper]. Run the mod's uninstaller and it is turned
+off in KHGWin too. Key binds, bots and video/audio settings are left alone,
+and so is any of these keys you change in KHGWin.ini yourself, until Khg.ini
+changes it again. KHGWin.log lists every key it copied ("[KHG] Mods").
+To turn this off, set ModSync=False under [KHGWin] in KHGWin.ini.
+
 Startup
 -------
 Like the retail game, the MicroProse splash shows while the game loads, then

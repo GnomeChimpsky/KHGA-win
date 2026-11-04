@@ -11,6 +11,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // Picks the folder for KHGWin.ini, KHGWin.log, saves and screenshots, and passes it to appSetUserDir().
 // Call before appInit(), with the exe's folder (trailing separator) and the command line:
@@ -56,3 +57,12 @@ void KHGDesktopLogConfigStatus();
 // lines of that key in the same section of Base (or is appended to it), sections missing from
 // Base are appended, and keys of [WinDrv.WindowsClient] seed [NSDLDrv.NSDLClient] when absent.
 std::string KHGMergeIni( const std::string& Base, const std::string& Overlay );
+
+// Mods (exposed for tests): returns PortIni with the mod keys of RetailIni (Khg.ini) brought over. A key
+// (DefaultGame, DefaultServerGame, ServerPackages[], Paths[], the server menu's game types, the player model
+// menus, any key of a non-retail package's section) is copied when its Khg.ini value differs from the one
+// recorded in PortIni's [KHGWin.ModSync] (or from DefaultIni when there is no record yet), and removed when
+// it left Khg.ini. The record is rewritten to what Khg.ini says now. Log gets one line per change.
+// KHGDesktopPrepareConfig() and KHGDesktopResetConfig() run it on KHGWin.ini unless [KHGWin] ModSync=False.
+std::string KHGSyncModKeys( const std::string& PortIni, const std::string& RetailIni, const std::string& DefaultIni,
+	std::vector<std::string>* Log );
