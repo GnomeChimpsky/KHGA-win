@@ -6,7 +6,7 @@ rem with the 60 Hz run. Red cells are differences beyond the tolerance.
 rem Double-click to test the build named below, or run TimingTest.bat <commit> [maps] for another one,
 rem e.g. TimingTest.bat 1234567 M02.unr,M11.unr
 rem Don't touch the mouse or keyboard while it runs: the test presses keys itself. It takes about
-rem 10 minutes per map and build. The ticks aren't paced to real time, so any PC can run the 1000 Hz pass.
+rem an hour per map and build. The ticks aren't paced to real time, so any PC can run the 1000 Hz pass.
 rem Copies only the KHGWin files (KHGWin*, OpenAL32.dll, FFmpeg DLLs) into Installed\System; no retail file is touched.
 set BUILD=%~1
 if "%BUILD%"=="" set BUILD=6fa906a
