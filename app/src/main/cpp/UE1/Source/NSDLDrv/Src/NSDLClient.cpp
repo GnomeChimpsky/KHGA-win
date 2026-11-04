@@ -143,6 +143,9 @@ void UNSDLClient::Init( UEngine* InEngine )
 	// Not calling SDL_StartTextInput because that pops up on-screen keyboards sometimes.
 	SDL_EventState( SDL_TEXTINPUT, SDL_ENABLE );
 
+	// [KHG] DefaultDisplay is the launcher's monitor choice; fall back to the main display if that monitor is gone.
+	if( DefaultDisplay < 0 || DefaultDisplay >= SDL_GetNumVideoDisplays() )
+		DefaultDisplay = 0;
 	SDL_GetDesktopDisplayMode( DefaultDisplay, &DefaultDisplayMode );
 
 #if defined(_WIN32) && !defined(PLATFORM_ANDROID)

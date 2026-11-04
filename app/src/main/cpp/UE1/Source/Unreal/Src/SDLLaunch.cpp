@@ -4082,6 +4082,7 @@ static void KHGShowMicroProseSplashOnce( UEngine* Engine )
 // [KHG] Desktop: like the retail launcher's hWndSplash, show the MicroProse splash in its own centred, borderless window
 // while the engine starts up, and close it once the engine (and the game window) is up. Skipped if Khg.exe is absent.
 static SDL_Window*   GKHGSplashWindow   = NULL;
+static INT           GKHGSplashDisplay  = 0;   // [KHG] the game's monitor ([NSDLDrv.NSDLClient] DefaultDisplay), read in WinMain
 static SDL_Renderer* GKHGSplashRenderer = NULL;
 static SDL_Texture*  GKHGSplashTexture  = NULL;
 static void KHGOpenStartupSplash()
@@ -4092,7 +4093,8 @@ static void KHGOpenStartupSplash()
 		return;
 	if( SDL_InitSubSystem( SDL_INIT_VIDEO ) == 0 )
 	{
-		GKHGSplashWindow = SDL_CreateWindow( "Klingon Honor Guard", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+		const INT Display = ( GKHGSplashDisplay >= 0 && GKHGSplashDisplay < SDL_GetNumVideoDisplays() ) ? GKHGSplashDisplay : 0;
+		GKHGSplashWindow = SDL_CreateWindow( "Klingon Honor Guard", SDL_WINDOWPOS_CENTERED_DISPLAY( Display ), SDL_WINDOWPOS_CENTERED_DISPLAY( Display ), W, H,
 			SDL_WINDOW_BORDERLESS | SDL_WINDOW_SKIP_TASKBAR );
 		if( GKHGSplashWindow )
 			GKHGSplashRenderer = SDL_CreateRenderer( GKHGSplashWindow, -1, SDL_RENDERER_SOFTWARE );
@@ -4673,6 +4675,18 @@ void MainLoop( UEngine* Engine )
 	if( Parse( appCmdLine(), "KHGWIDEHUD=", WideHUDArg ) )
 		WideHUD = WideHUDArg != 0;
 	GKHGWideHUD = WideHUD;
+	// [KHG] Launcher settings: [KHGWin] FOV (0 = retail, see UnCamera.h) and FrameRateLimit (0 = no cap).
+	FLOAT KHGFov = 0.f;
+	GetConfigFloat( "KHGWin", "FOV", KHGFov );
+	GKHGFov = ( KHGFov >= 60.f && KHGFov <= 150.f && KHGFov != 90.f ) ? KHGFov : 0.f;
+	INT KHGFrameCap = 0;
+	GetConfigInt( "KHGWin", "FrameRateLimit", KHGFrameCap );
+	if( KHGFrameCap > 0 && KHGFrameCap < 20 )
+		KHGFrameCap = 20;
+	char KHGFovText[32] = "retail (90)";
+	if( GKHGFov > 0.f )
+		appSprintf( KHGFovText, "%.0f", GKHGFov );
+	debugf( NAME_Log, "[KHG] Launcher settings: FOV=%s FrameRateLimit=%i", KHGFovText, KHGFrameCap );
 	debugf( NAME_Log, "[KHG] Widescreen: HorPlusFOV=%s WidescreenHUD=%s", GKHGHorPlus ? "True" : "False", GKHGWideHUD ? "True" : "False" );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
@@ -4760,6 +4774,17 @@ void MainLoop( UEngine* Engine )
 #endif
 		Engine->Tick( NewTime - OldTime );
 		OldTime = NewTime;
+#ifdef PLATFORM_WIN32
+		if( KHGFrameCap > 0 )
+		{
+			// [KHG] Frame cap: sleep most of the frame's remaining time, then spin the last ms (Windows sleeps are coarse).
+			const DOUBLE Next = NewTime + 1.0 / KHGFrameCap;
+			if( Next - appSeconds() > 0.002 )
+				appSleep( Next - appSeconds() - 0.0015 );
+			while( appSeconds() < Next )
+				;
+		}
+#endif
 
 		// Enforce optional maximum tick rate.
 		INT MaxTickRate = Engine->GetMaxTickRate();
@@ -4862,6 +4887,7 @@ int main( int argc, const char** argv )
 			// destructors before appInit(), so leave without them.
 			TerminateProcess( GetCurrentProcess(), 0 );
 		}
+		GKHGSplashDisplay = GetPrivateProfileIntA( "NSDLDrv.NSDLClient", "DefaultDisplay", 0, KHGIni.c_str() );
 	}
 #endif
 

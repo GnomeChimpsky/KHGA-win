@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #ifndef VK_NO_PROTOTYPES
 #define VK_NO_PROTOTYPES
@@ -29,6 +30,7 @@
 
 #include "KHGLauncher.h"
 #include "KHGSplash.h"
+#include "KHGDesktopConfig.h"
 
 namespace
 {
@@ -191,13 +193,13 @@ const char* const SecKHG    = "KHGWin";
 
 struct FMode { int W, H; };
 
-std::vector<FMode> DisplayModes( FMode& Desktop )
+std::vector<FMode> DisplayModes( const char* Device, FMode& Desktop )
 {
 	std::vector<FMode> Modes;
 	DEVMODEA DM;
 	memset( &DM, 0, sizeof(DM) );
 	DM.dmSize = sizeof(DM);
-	for( DWORD i = 0; EnumDisplaySettingsA( NULL, i, &DM ); ++i )
+	for( DWORD i = 0; EnumDisplaySettingsA( Device, i, &DM ); ++i )
 	{
 		if( DM.dmPelsWidth < 640 || DM.dmPelsHeight < 480 || DM.dmBitsPerPel < 16 )
 			continue;
@@ -210,7 +212,7 @@ std::vector<FMode> DisplayModes( FMode& Desktop )
 	}
 	Desktop.W = GetSystemMetrics( SM_CXSCREEN );
 	Desktop.H = GetSystemMetrics( SM_CYSCREEN );
-	if( EnumDisplaySettingsA( NULL, ENUM_CURRENT_SETTINGS, &DM ) )
+	if( EnumDisplaySettingsA( Device, ENUM_CURRENT_SETTINGS, &DM ) )
 	{
 		Desktop.W = DM.dmPelsWidth;
 		Desktop.H = DM.dmPelsHeight;
@@ -218,6 +220,96 @@ std::vector<FMode> DisplayModes( FMode& Desktop )
 	std::sort( Modes.begin(), Modes.end(), []( const FMode& A, const FMode& B )
 		{ return A.W != B.W ? A.W > B.W : A.H > B.H; } );
 	return Modes;
+}
+
+
+// Monitors in SDL's display order ([NSDLDrv.NSDLClient] DefaultDisplay counts them like SDL 2.32's
+// WIN_AddDisplays: the primary monitor first, then the others in EnumDisplayMonitors order).
+struct FMonitor { std::string Device; std::wstring Name; FMode Size; bool Primary; };
+
+std::wstring MonitorName( const char* GdiDevice )
+{
+	// The friendly name ("DELL U2720Q") through the display configuration API, like SDL's WIN_GetDisplayNameVista.
+	UINT32 NumPaths = 0, NumModes = 0;
+	if( GetDisplayConfigBufferSizes( QDC_ONLY_ACTIVE_PATHS, &NumPaths, &NumModes ) == ERROR_SUCCESS && NumPaths )
+	{
+		std::vector<DISPLAYCONFIG_PATH_INFO> Paths( NumPaths );
+		std::vector<DISPLAYCONFIG_MODE_INFO> Modes( NumModes );
+		if( QueryDisplayConfig( QDC_ONLY_ACTIVE_PATHS, &NumPaths, Paths.data(), &NumModes, Modes.data(), NULL ) == ERROR_SUCCESS )
+			for( UINT32 i = 0; i < NumPaths; ++i )
+			{
+				DISPLAYCONFIG_SOURCE_DEVICE_NAME Source;
+				memset( &Source, 0, sizeof(Source) );
+				Source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+				Source.header.size = sizeof(Source);
+				Source.header.adapterId = Paths[i].sourceInfo.adapterId;
+				Source.header.id = Paths[i].sourceInfo.id;
+				if( DisplayConfigGetDeviceInfo( &Source.header ) != ERROR_SUCCESS )
+					continue;
+				char Gdi[64];
+				WideCharToMultiByte( CP_ACP, 0, Source.viewGdiDeviceName, -1, Gdi, sizeof(Gdi), NULL, NULL );
+				if( _stricmp( Gdi, GdiDevice ) != 0 )
+					continue;
+				DISPLAYCONFIG_TARGET_DEVICE_NAME Target;
+				memset( &Target, 0, sizeof(Target) );
+				Target.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+				Target.header.size = sizeof(Target);
+				Target.header.adapterId = Paths[i].targetInfo.adapterId;
+				Target.header.id = Paths[i].targetInfo.id;
+				if( DisplayConfigGetDeviceInfo( &Target.header ) == ERROR_SUCCESS && Target.monitorFriendlyDeviceName[0] )
+					return Target.monitorFriendlyDeviceName;
+			}
+	}
+	DISPLAY_DEVICEA DD;
+	memset( &DD, 0, sizeof(DD) );
+	DD.cb = sizeof(DD);
+	if( EnumDisplayDevicesA( GdiDevice, 0, &DD, 0 ) && DD.DeviceString[0] )
+	{
+		std::wstring W;
+		for( const char* P = DD.DeviceString; *P; ++P )
+			W += (wchar_t)(unsigned char)*P;
+		return W;
+	}
+	return L"Monitor";
+}
+
+struct FMonitorScan { std::vector<FMonitor>* Out; bool WantPrimary; };
+
+BOOL CALLBACK MonitorProc( HMONITOR Mon, HDC, LPRECT, LPARAM Param )
+{
+	FMonitorScan* Scan = (FMonitorScan*)Param;
+	MONITORINFOEXA Info;
+	memset( &Info, 0, sizeof(Info) );
+	Info.cbSize = sizeof(Info);
+	if( GetMonitorInfoA( Mon, (LPMONITORINFO)&Info ) && ( ( Info.dwFlags & MONITORINFOF_PRIMARY ) != 0 ) == Scan->WantPrimary )
+	{
+		FMonitor M;
+		M.Device = Info.szDevice;
+		M.Name = MonitorName( Info.szDevice );
+		M.Size.W = Info.rcMonitor.right - Info.rcMonitor.left;
+		M.Size.H = Info.rcMonitor.bottom - Info.rcMonitor.top;
+		DEVMODEA DM;
+		memset( &DM, 0, sizeof(DM) );
+		DM.dmSize = sizeof(DM);
+		if( EnumDisplaySettingsA( Info.szDevice, ENUM_CURRENT_SETTINGS, &DM ) )
+		{
+			M.Size.W = DM.dmPelsWidth;
+			M.Size.H = DM.dmPelsHeight;
+		}
+		M.Primary = Scan->WantPrimary;
+		Scan->Out->push_back( M );
+	}
+	return TRUE;
+}
+
+std::vector<FMonitor> Monitors()
+{
+	std::vector<FMonitor> Out;
+	FMonitorScan Scan = { &Out, true };
+	EnumDisplayMonitors( NULL, NULL, MonitorProc, (LPARAM)&Scan );
+	Scan.WantPrimary = false;
+	EnumDisplayMonitors( NULL, NULL, MonitorProc, (LPARAM)&Scan );
+	return Out;
 }
 
 // GPU names in the order VulkanDrv's VkDeviceIndex counts them (ZVulkan VulkanDeviceBuilder::FindDevices
@@ -314,8 +406,8 @@ std::wstring Wide( const std::string& S, UINT CodePage = CP_UTF8 )
 	The window.
 -----------------------------------------------------------------------------*/
 
-enum EKind { K_Check, K_Combo, K_Slider };
-enum ESpecial { SP_None, SP_DisplayMode, SP_Resolution, SP_WindowSize };
+enum EKind { K_Check, K_Combo, K_Slider, K_Edit };
+enum ESpecial { SP_None, SP_DisplayMode, SP_Monitor, SP_Resolution, SP_WindowSize, SP_Portable };
 
 struct FItem
 {
@@ -329,40 +421,45 @@ struct FItem
 	HWND LabelWnd = NULL, Ctrl = NULL, ValueWnd = NULL;
 	// Check
 	bool InitialCheck = false;
-	// Combo: what each entry writes
+	// Combo: the ini value of each entry; changed = the selected value differs from InitialValue
 	std::vector<std::string> Values;
-	int InitialIndex = 0;
+	std::string InitialValue;
 	// Slider: ini value = Base + Pos * Scale (positions start at 0; some trackbars mishandle negative ranges)
 	int Max = 100, InitialPos = 0;
 	float Base = 0.f, Scale = 1.f;
 	int Decimals = 0;   // ini formatting
 	int Display = 0;    // 0 = value with Decimals, 1 = percent of Max, 2 = percent (value*100)
+	// Edit: the text it started with
+	std::string InitialText;
 };
 
 enum
 {
-	ID_TAB = 100, ID_PLAY = IDOK, ID_QUIT = IDCANCEL, ID_SHOWATSTART = 110, ID_SAVES = 111,
-	ID_ITEM = 1000,
+	ID_TAB = 100, ID_PLAY = IDOK, ID_QUIT = IDCANCEL, ID_SHOWATSTART = 110, ID_SAVES = 111, ID_LOG = 112, ID_RESET = 113,
+	ID_ITEM = 1000, ID_BROWSE = 2000,
 };
 
-const char* const PageNames[] = { "Display", "Graphics", "Input", "Audio" };
-const int NumPages = 4;
+const char* const PageNames[] = { "Display", "Graphics", "Game", "Controls", "Audio" };
+const int NumPages = 5;
+enum { PG_Display, PG_Graphics, PG_Game, PG_Controls, PG_Audio };
 
 struct FLauncher
 {
 	std::string BaseDir, UserDir, IniPath;
 	FIniFile Ini;
 	std::vector<FItem> Items;
-	HWND Wnd = NULL, Tab = NULL, Tips = NULL, ShowAtStart = NULL;
+	std::vector<FMonitor> Mons;
+	HWND Wnd = NULL, Tab = NULL, Tips = NULL, ShowAtStart = NULL, Browse = NULL;
 	HFONT Font = NULL;
 	HBRUSH PageBrush = NULL, BarBrush = NULL;
 	int Dpi = 96;
 	unsigned char* Splash = nullptr;
 	int SplashW = 0, SplashH = 0;
 	bool InitialShowAtStart = true;
-	bool Play = false;
+	bool Play = false, Reopen = false;
+	int CurPage = 0;
 	// Layout, in 96-dpi units.
-	static const int ImageW = 512, ImageH = 372, PanelW = 430, BarH = 46;
+	static const int ImageW = 512, ImageH = 372, PanelW = 440, BarH = 46;
 	int RowY[NumPages] = {};
 
 	int S( int V ) const { return MulDiv( V, Dpi, 96 ); }
@@ -405,7 +502,15 @@ struct FLauncher
 		return I;
 	}
 
-	// Creates the controls of the last item, on the next row of its page.
+	FItem* FindSpecial( ESpecial Sp )
+	{
+		for( FItem& I : Items )
+			if( I.Special == Sp )
+				return &I;
+		return nullptr;
+	}
+
+	// Creates the controls of an item on the next row of its page.
 	void Place( FItem& I )
 	{
 		const RECT P = PageRect();
@@ -414,14 +519,14 @@ struct FLauncher
 		const int LabelW = S( 150 );
 		int& Y = RowY[I.Page];
 		if( Y == 0 )
-			Y = P.top + S( 14 );
+			Y = P.top + S( 12 );
 		HINSTANCE Inst = GetModuleHandleA( NULL );
 		if( I.Kind == K_Check )
 		{
 			I.Ctrl = CreateWindowExA( 0, "BUTTON", I.Label, WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX,
 				X, Y, W, S( 22 ), Wnd, (HMENU)(INT_PTR)Id, Inst, NULL );
 			SendMessageA( I.Ctrl, BM_SETCHECK, I.InitialCheck ? BST_CHECKED : BST_UNCHECKED, 0 );
-			Y += S( 28 );
+			Y += S( 27 );
 		}
 		else
 		{
@@ -433,7 +538,17 @@ struct FLauncher
 			if( I.Kind == K_Combo )
 			{
 				I.Ctrl = CreateWindowExW( 0, L"COMBOBOX", L"", WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
-					CX, Y, CW, S( 260 ), Wnd, (HMENU)(INT_PTR)Id, Inst, NULL );
+					CX, Y, CW, S( 300 ), Wnd, (HMENU)(INT_PTR)Id, Inst, NULL );
+			}
+			else if( I.Kind == K_Edit )
+			{
+				const int BW = S( 28 );
+				I.Ctrl = CreateWindowExA( WS_EX_CLIENTEDGE, "EDIT", I.InitialText.c_str(), WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
+					CX, Y, CW - BW - S( 4 ), S( 23 ), Wnd, (HMENU)(INT_PTR)Id, Inst, NULL );
+				I.ValueWnd = CreateWindowExA( 0, "BUTTON", "...", WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+					CX + CW - BW, Y, BW, S( 23 ), Wnd, (HMENU)(INT_PTR)( ID_BROWSE + ( Id - ID_ITEM ) ), Inst, NULL );
+				SetFont( I.ValueWnd );
+				AddTip( I.ValueWnd, "Pick the folder." );
 			}
 			else
 			{
@@ -448,48 +563,64 @@ struct FLauncher
 				SetFont( I.ValueWnd );
 				AddTip( I.ValueWnd, I.Tip );
 			}
-			Y += S( 34 );
+			Y += S( 33 );
 		}
 		SetFont( I.Ctrl );
 		AddTip( I.Ctrl, I.Tip );
 	}
 
-	void AddCheck( int Page, const char* Section, const char* Key, bool Default, const char* Label, const char* Tip )
+	FItem& AddCheck( int Page, const char* Section, const char* Key, bool Default, const char* Label, const char* Tip )
 	{
 		FItem& I = NewItem( Page, K_Check, Section, Key, Label, Tip );
 		I.InitialCheck = ParseBool( Get( Section, Key, "" ), Default );
 		Place( I );
-	}
-
-	// Labels are UTF-8. Initial = the ini value to select (added as an entry if no entry has it).
-	FItem& AddCombo( int Page, const char* Section, const char* Key, const char* Label, const char* Tip,
-		const std::vector<std::pair<std::string, std::string>>& Entries, const std::string& Initial )
-	{
-		FItem& I = NewItem( Page, K_Combo, Section, Key, Label, Tip );
-		Place( I );
-		I.InitialIndex = -1;
-		for( const auto& E : Entries )
-		{
-			SendMessageW( I.Ctrl, CB_ADDSTRING, 0, (LPARAM)Wide( E.first ).c_str() );
-			if( I.InitialIndex < 0 && _stricmp( E.second.c_str(), Initial.c_str() ) == 0 )
-				I.InitialIndex = (int)I.Values.size();
-			I.Values.push_back( E.second );
-		}
-		if( I.InitialIndex < 0 )
-		{
-			std::string Shown = Initial;
-			const size_t X = Initial.find( 'x' );
-			if( I.Key && ( strstr( I.Key, "ViewportX" ) ) && X != std::string::npos )
-				Shown = Initial.substr( 0, X ) + " x " + Initial.substr( X + 1 );
-			SendMessageW( I.Ctrl, CB_ADDSTRING, 0, (LPARAM)Wide( Shown + "  (current)" ).c_str() );
-			I.InitialIndex = (int)I.Values.size();
-			I.Values.push_back( Initial );
-		}
-		SendMessageW( I.Ctrl, CB_SETCURSEL, I.InitialIndex, 0 );
 		return I;
 	}
 
-	void AddSlider( int Page, const char* Section, const char* Key, float Default, const char* Label, const char* Tip,
+	// Fills a combo. Labels are UTF-8. Select = the ini value to select (added as an entry if no entry has it).
+	void FillCombo( FItem& I, const std::vector<std::pair<std::string, std::string>>& Entries, const std::string& Select )
+	{
+		SendMessageW( I.Ctrl, CB_RESETCONTENT, 0, 0 );
+		I.Values.clear();
+		int Sel = -1;
+		for( const auto& E : Entries )
+		{
+			SendMessageW( I.Ctrl, CB_ADDSTRING, 0, (LPARAM)Wide( E.first ).c_str() );
+			if( Sel < 0 && _stricmp( E.second.c_str(), Select.c_str() ) == 0 )
+				Sel = (int)I.Values.size();
+			I.Values.push_back( E.second );
+		}
+		if( Sel < 0 )
+		{
+			std::string Shown = Select;
+			const size_t X = Select.find( 'x' );
+			if( ( I.Special == SP_Resolution || I.Special == SP_WindowSize ) && X != std::string::npos )
+				Shown = Select.substr( 0, X ) + " x " + Select.substr( X + 1 );
+			SendMessageW( I.Ctrl, CB_ADDSTRING, 0, (LPARAM)Wide( Shown + "  (current)" ).c_str() );
+			Sel = (int)I.Values.size();
+			I.Values.push_back( Select );
+		}
+		SendMessageW( I.Ctrl, CB_SETCURSEL, Sel, 0 );
+	}
+
+	FItem& AddCombo( int Page, const char* Section, const char* Key, const char* Label, const char* Tip,
+		const std::vector<std::pair<std::string, std::string>>& Entries, const std::string& Initial, ESpecial Special = SP_None )
+	{
+		FItem& I = NewItem( Page, K_Combo, Section, Key, Label, Tip );
+		I.Special = Special;
+		I.InitialValue = Initial;
+		Place( I );
+		FillCombo( I, Entries, Initial );
+		return I;
+	}
+
+	std::string ComboValue( const FItem& I ) const
+	{
+		const int Sel = (int)SendMessageW( I.Ctrl, CB_GETCURSEL, 0, 0 );
+		return Sel >= 0 && Sel < (int)I.Values.size() ? I.Values[Sel] : I.InitialValue;
+	}
+
+	FItem& AddSlider( int Page, const char* Section, const char* Key, float Default, const char* Label, const char* Tip,
 		int Min, int Max, float Scale, int Decimals, int Display )
 	{
 		FItem& I = NewItem( Page, K_Slider, Section, Key, Label, Tip );
@@ -499,11 +630,20 @@ struct FLauncher
 		I.InitialPos = std::min( I.Max, std::max( 0, (int)lroundf( ( V - I.Base ) / Scale ) ) );
 		Place( I );
 		UpdateValue( I );
+		return I;
+	}
+
+	FItem& AddEdit( int Page, const char* Section, const char* Key, const char* Default, const char* Label, const char* Tip )
+	{
+		FItem& I = NewItem( Page, K_Edit, Section, Key, Label, Tip );
+		I.InitialText = Get( Section, Key, Default );
+		Place( I );
+		return I;
 	}
 
 	void UpdateValue( FItem& I )
 	{
-		if( !I.ValueWnd )
+		if( !I.ValueWnd || I.Kind != K_Slider )
 			return;
 		const int Pos = (int)SendMessageA( I.Ctrl, TBM_GETPOS, 0, 0 );
 		const float V = I.Base + Pos * I.Scale;
@@ -523,77 +663,110 @@ struct FLauncher
 		snprintf( Buf, sizeof(Buf), "%d x %d", W, H );
 		return Buf;
 	}
+	static std::string ModeValue( int W, int H ) { return std::to_string( W ) + "x" + std::to_string( H ); }
+
+	// Resolution and window size lists for the chosen monitor (index into Mons; -1 = primary).
+	void FillModeCombos( int Monitor, bool Initial )
+	{
+		FItem* Res = FindSpecial( SP_Resolution );
+		FItem* Win = FindSpecial( SP_WindowSize );
+		if( !Res || !Win )
+			return;
+		FMode Desktop;
+		const char* Device = Monitor >= 0 && Monitor < (int)Mons.size() ? Mons[Monitor].Device.c_str() : NULL;
+		const std::vector<FMode> Modes = DisplayModes( Device, Desktop );
+		std::vector<std::pair<std::string, std::string>> R, W;
+		for( const FMode& M : Modes )
+			R.push_back( { ModeLabel( M.W, M.H ) + ( M.W == Desktop.W && M.H == Desktop.H ? "  (desktop)" : "" ), ModeValue( M.W, M.H ) } );
+		W.push_back( { "Automatic", "0x0" } );
+		for( const FMode& M : Modes )
+			if( M.W < Desktop.W && M.H < Desktop.H )
+				W.push_back( { ModeLabel( M.W, M.H ), ModeValue( M.W, M.H ) } );
+		// Keep the current choices where the new monitor has them; a new monitor without it gets its desktop size.
+		std::string RSel = Initial ? Res->InitialValue : ComboValue( *Res );
+		std::string WSel = Initial ? Win->InitialValue : ComboValue( *Win );
+		if( !Initial )
+		{
+			bool HaveR = false, HaveW = false;
+			for( const auto& E : R ) HaveR |= E.second == RSel;
+			for( const auto& E : W ) HaveW |= E.second == WSel;
+			if( !HaveR ) RSel = ModeValue( Desktop.W, Desktop.H );
+			if( !HaveW ) WSel = "0x0";
+		}
+		FillCombo( *Res, R, RSel );
+		FillCombo( *Win, W, WSel );
+	}
 
 	void BuildItems()
 	{
 		Items.reserve( 64 );
-		FMode Desktop;
-		const std::vector<FMode> Modes = DisplayModes( Desktop );
+		Mons = Monitors();
 
 		// ---- Display ----
 		{
 			const bool Full = ParseBool( Get( SecClient, "StartupFullscreen", "" ), true );
 			const bool Borderless = ParseBool( Get( SecClient, "BorderlessFullscreen", "" ), false );
-			FItem& I = AddCombo( 0, SecClient, "StartupFullscreen", "Display mode",
+			AddCombo( PG_Display, SecClient, "StartupFullscreen", "Display mode",
 				"How the game fills the screen. Fullscreen switches the monitor to the chosen resolution, like the retail game. "
 				"Borderless covers the desktop without switching (the picture is scaled to fit, keeping its shape). "
 				"Window runs in a resizable window. Alt+Enter switches in game.",
 				{ { "Fullscreen", "full" }, { "Borderless fullscreen", "borderless" }, { "Window", "window" } },
-				!Full ? "window" : Borderless ? "borderless" : "full" );
-			I.Special = SP_DisplayMode;
+				!Full ? "window" : Borderless ? "borderless" : "full", SP_DisplayMode );
 		}
 		{
 			std::vector<std::pair<std::string, std::string>> E;
-			for( const FMode& M : Modes )
-				E.push_back( { ModeLabel( M.W, M.H ) + ( M.W == Desktop.W && M.H == Desktop.H ? "  (desktop)" : "" ),
-				               std::to_string( M.W ) + "x" + std::to_string( M.H ) } );
-			const std::string Cur = Get( SecClient, "ViewportX", "1024" ) + "x" + Get( SecClient, "ViewportY", "768" );
-			FItem& I = AddCombo( 0, SecClient, "ViewportX", "Fullscreen resolution",
-				"Resolution in fullscreen. Lists every mode your monitor offers, not only the 16 the in-game menu shows.",
-				E, Cur );
-			I.Special = SP_Resolution;
+			for( size_t i = 0; i < Mons.size(); ++i )
+			{
+				std::wstring L = std::to_wstring( i + 1 ) + L": " + Mons[i].Name + L"  (" + std::to_wstring( Mons[i].Size.W ) + L" x "
+					+ std::to_wstring( Mons[i].Size.H ) + ( Mons[i].Primary ? L", main)" : L")" );
+				char Utf8[512];
+				WideCharToMultiByte( CP_UTF8, 0, L.c_str(), -1, Utf8, sizeof(Utf8), NULL, NULL );
+				E.push_back( { Utf8, std::to_string( i ) } );
+			}
+			if( E.empty() )
+				E.push_back( { "Main monitor", "0" } );
+			FItem& I = AddCombo( PG_Display, SecClient, "DefaultDisplay", "Monitor",
+				"Which monitor the game opens on, in fullscreen and in a window.",
+				E, Get( SecClient, "DefaultDisplay", "0" ), SP_Monitor );
+			EnableWindow( I.Ctrl, E.size() > 1 );
 		}
 		{
-			std::vector<std::pair<std::string, std::string>> E;
-			E.push_back( { "Automatic", "0x0" } );
-			for( const FMode& M : Modes )
-				if( M.W < Desktop.W && M.H < Desktop.H )
-					E.push_back( { ModeLabel( M.W, M.H ), std::to_string( M.W ) + "x" + std::to_string( M.H ) } );
-			const std::string Cur = Get( SecClient, "WindowedViewportX", "0" ) + "x" + Get( SecClient, "WindowedViewportY", "0" );
-			FItem& I = AddCombo( 0, SecClient, "WindowedViewportX", "Window size",
+			FItem& R = AddCombo( PG_Display, SecClient, "ViewportX", "Fullscreen resolution",
+				"Resolution in fullscreen. Lists every mode the monitor offers, not only the 16 the in-game menu shows.",
+				{}, Get( SecClient, "ViewportX", "1024" ) + "x" + Get( SecClient, "ViewportY", "768" ), SP_Resolution );
+			(void)R;
+			AddCombo( PG_Display, SecClient, "WindowedViewportX", "Window size",
 				"Size of the game window. Automatic uses the fullscreen resolution, shrunk to fit the desktop. "
 				"Dragging the window's edge in game also changes it.",
-				E, Cur );
-			I.Special = SP_WindowSize;
+				{}, Get( SecClient, "WindowedViewportX", "0" ) + "x" + Get( SecClient, "WindowedViewportY", "0" ), SP_WindowSize );
+			FillModeCombos( atoi( Get( SecClient, "DefaultDisplay", "0" ).c_str() ), true );
 		}
-		AddCheck( 0, SecVulkan, "UseVSync", true, "Vertical sync",
-			"Waits for the monitor's refresh, like the retail 3dfx Glide driver. Off: no frame cap, the picture can tear." );
-		AddCheck( 0, SecKHG, "HorPlusFOV", true, "Widescreen view (Hor+)",
+		AddCombo( PG_Display, SecKHG, "FrameRateLimit", "Frame rate limit",
+			"Highest frame rate the game runs at. Mostly useful with vertical sync off. Off = no limit.",
+			{ { "Off", "0" }, { "30 fps", "30" }, { "60 fps", "60" }, { "75 fps", "75" }, { "90 fps", "90" }, { "100 fps", "100" },
+			  { "120 fps", "120" }, { "144 fps", "144" }, { "165 fps", "165" }, { "200 fps", "200" }, { "240 fps", "240" } },
+			Get( SecKHG, "FrameRateLimit", "0" ) );
+		AddCheck( PG_Display, SecVulkan, "UseVSync", true, "Vertical sync",
+			"Waits for the monitor's refresh, like the retail 3dfx Glide driver. Off: the picture can tear." );
+		AddCheck( PG_Display, SecKHG, "HorPlusFOV", true, "Widescreen view (Hor+)",
 			"On screens wider than 4:3, keeps the 4:3 view from top to bottom and shows more at the sides. "
 			"Off: the retail view, cut off at the top and bottom. Console: HorPlus." );
-		AddCheck( 0, SecKHG, "WidescreenHUD", true, "Widescreen HUD and menus",
+		AddCheck( PG_Display, SecKHG, "WidescreenHUD", true, "Widescreen HUD and menus",
 			"Keeps the HUD panels 4:3 in the screen corners and shows the menus at 4:3 with black bars. "
 			"Off: stretched across the screen like retail. Console: WideHUD." );
-		AddCheck( 0, SecKHG, "PlayIntroAtStartup", false, "Play the intro movie at startup",
-			"Plays the intro movie before the main menu every time. The retail game only plays it from the video log menu." );
 
 		// ---- Graphics ----
-		AddCombo( 1, SecVulkan, "LightMode", "World lighting",
+		AddCombo( PG_Graphics, SecVulkan, "LightMode", "World lighting",
 			"Brightness of the levels' lighting. Retail matches the 1998 3dfx Glide look; brighter is the OpenGL / Android level.",
 			{ { "Retail (3dfx Glide)", "3" }, { "Brighter (OpenGL / Android)", "0" }, { "Darker", "1" } },
 			Get( SecVulkan, "LightMode", "3" ) );
-		AddSlider( 1, SecVulkan, "MirrorReflection", 0.25f, "Floor reflections",
-			"Strength of reflections on shiny see-through floors. 0% = none, 100% = the OpenGL / Android strength.",
-			0, 100, 0.01f, 2, 2 );
-		AddSlider( 1, SecVulkan, "LODBias", 0.f, "Texture sharpness",
-			"Mipmap bias. Below 0 distant textures are sharper but can shimmer; above 0 they are softer. 0 = default.",
-			-8, 8, 0.25f, 2, 0 );
-		AddSlider( 1, SecVulkan, "Contrast", 128.f, "Contrast",
-			"Picture contrast. 128 = unchanged.", 0, 255, 1.f, 0, 0 );
-		AddSlider( 1, SecVulkan, "Saturation", 255.f, "Colour saturation",
-			"Colour strength. 255 = unchanged; lower is greyer.", 0, 255, 1.f, 0, 0 );
-		AddCheck( 1, SecVulkan, "GlideGamma", true, "3dfx gamma curve",
-			"The in-game brightness slider uses the 3dfx Glide gamma curve, like retail. Off: the older flat brightness." );
+		AddCombo( PG_Graphics, SecVulkan, "Antialiasing", "Anti-aliasing (MSAA)",
+			"Smooths jagged edges of walls and models. Costs some speed at high resolutions. Off is the retail look. "
+			"If the graphics card can't do the chosen level, the highest one it can do is used.",
+			{ { "Off", "0" }, { "2x", "2" }, { "4x", "4" }, { "8x", "8" } }, Get( SecVulkan, "Antialiasing", "0" ) );
+		AddCombo( PG_Graphics, SecVulkan, "Anisotropy", "Anisotropic filtering",
+			"Keeps floors and walls sharp when seen at a steep angle. Off is closest to the retail look. Almost free on modern cards.",
+			{ { "Off", "1" }, { "2x", "2" }, { "4x", "4" }, { "8x", "8" }, { "16x", "16" } }, Get( SecVulkan, "Anisotropy", "8" ) );
 		{
 			const std::vector<std::string> Gpus = VulkanDevices();
 			std::vector<std::pair<std::string, std::string>> E;
@@ -601,31 +774,63 @@ struct FLauncher
 				E.push_back( { Gpus[i] + ( i == 0 ? "  (best)" : "" ), std::to_string( i ) } );
 			if( E.empty() )
 				E.push_back( { "Automatic", "0" } );
-			FItem& I = AddCombo( 1, SecVulkan, "VkDeviceIndex", "Graphics card",
+			FItem& I = AddCombo( PG_Graphics, SecVulkan, "VkDeviceIndex", "Graphics card",
 				"Which graphics card renders the game, for PCs with more than one (such as laptops). "
 				"The first one is the fastest kind and is used by default.",
 				E, Get( SecVulkan, "VkDeviceIndex", "0" ) );
 			EnableWindow( I.Ctrl, E.size() > 1 );
 		}
+		AddSlider( PG_Graphics, SecVulkan, "MirrorReflection", 0.25f, "Floor reflections",
+			"Strength of reflections on shiny see-through floors. 0% = none, 100% = the OpenGL / Android strength.",
+			0, 100, 0.01f, 2, 2 );
+		AddSlider( PG_Graphics, SecVulkan, "LODBias", 0.f, "Texture sharpness",
+			"Mipmap bias. Below 0 distant textures are sharper but can shimmer; above 0 they are softer. 0 = default.",
+			-8, 8, 0.25f, 2, 0 );
+		AddSlider( PG_Graphics, SecVulkan, "Contrast", 128.f, "Contrast",
+			"Picture contrast. 128 = unchanged.", 0, 255, 1.f, 0, 0 );
+		AddSlider( PG_Graphics, SecVulkan, "Saturation", 255.f, "Colour saturation",
+			"Colour strength. 255 = unchanged; lower is greyer.", 0, 255, 1.f, 0, 0 );
+		AddCheck( PG_Graphics, SecVulkan, "GlideGamma", true, "3dfx gamma curve",
+			"The in-game brightness slider uses the 3dfx Glide gamma curve, like retail. Off: the older flat brightness." );
 
-		// ---- Input ----
-		AddCheck( 2, SecClient, "RawMouseInput", true, "Raw mouse input",
+		// ---- Game ----
+		AddSlider( PG_Game, SecKHG, "FOV", 90.f, "Field of view",
+			"How wide you see, in degrees across a 4:3 view (widescreen adds to the sides with Hor+). 90 is the retail value. "
+			"As in retail, mouse speed grows with the field of view, and zooming returns to this value.",
+			60, 130, 1.f, 0, 0 );
+		AddCheck( PG_Game, SecKHG, "PlayIntroAtStartup", false, "Play the intro movie at startup",
+			"Plays the intro movie before the main menu every time. The retail game only plays it from the video log menu." );
+		{
+			FItem& I = NewItem( PG_Game, K_Check, nullptr, nullptr, "Portable mode (from the next start)",
+				"Keeps KHGWin.ini, the log and the saves in the game folder (saves shared with the retail game) instead of "
+				"Saved Games. Takes effect the next time you start KHGWin. The two places keep separate settings and saves. "
+				"Works by putting portable.txt next to KHGWin.exe." );
+			I.Special = SP_Portable;
+			I.InitialCheck = GetFileAttributesA( ( BaseDir + "portable.txt" ).c_str() ) != INVALID_FILE_ATTRIBUTES;
+			Place( I );
+		}
+
+		// ---- Controls ----
+		AddCheck( PG_Controls, SecClient, "RawMouseInput", true, "Raw mouse input",
 			"Reads the mouse directly, without Windows pointer speed and acceleration. "
 			"Off: moves like the retail game, with your Windows pointer settings." );
-		AddCheck( 2, SecClient, "WindowsKeyCodes", true, "Keys follow the keyboard layout",
+		AddSlider( PG_Controls, "Engine.PlayerPawn", "MouseSensitivity", 3.f, "Mouse sensitivity",
+			"Mouse speed in finer steps than the game's Options menu, which only does whole numbers 1 to 10. 3 = retail default.",
+			5, 150, 0.1f, 1, 0 );
+		AddCheck( PG_Controls, SecClient, "WindowsKeyCodes", true, "Keys follow the keyboard layout",
 			"Reads keys as Windows key codes, like retail, so your bindings follow your keyboard layout. "
 			"Off: physical key positions of a US keyboard." );
-		AddCheck( 2, SecClient, "UseJoystick", true, "Use a controller",
+		AddCheck( PG_Controls, SecClient, "UseJoystick", true, "Use a controller",
 			"Lets a controller play the game (twin-stick layout; rebind buttons in the Controls menu). Off: controllers are ignored, the retail default." );
-		AddSlider( 2, SecClient, "ScaleRUV", 100.f, "Right stick speed",
+		AddSlider( PG_Controls, SecClient, "ScaleRUV", 100.f, "Right stick speed",
 			"How fast the right stick turns and looks. 100 = default.", 25, 300, 1.f, 0, 0 );
-		AddSlider( 2, SecClient, "DeadZoneXYZ", 0.2f, "Left stick dead zone",
+		AddSlider( PG_Controls, SecClient, "DeadZoneXYZ", 0.2f, "Left stick dead zone",
 			"How far the left stick moves before the player does. Raise it if you drift with the stick let go.",
 			0, 50, 0.01f, 2, 0 );
-		AddSlider( 2, SecClient, "DeadZoneRUV", 0.15f, "Right stick dead zone",
+		AddSlider( PG_Controls, SecClient, "DeadZoneRUV", 0.15f, "Right stick dead zone",
 			"How far the right stick moves before the view does. Raise it if the view creeps with the stick let go.",
 			0, 50, 0.01f, 2, 0 );
-		AddCheck( 2, SecClient, "InvertV", false, "Invert right stick look",
+		AddCheck( PG_Controls, SecClient, "InvertV", false, "Invert right stick look",
 			"Push the right stick up to look down, like a flight stick." );
 
 		// ---- Audio ----
@@ -636,25 +841,28 @@ struct FLauncher
 				E.push_back( { D, D } );
 			std::string Cur;
 			Ini.Get( SecAudio, "DeviceName", Cur );
-			AddCombo( 3, SecAudio, "DeviceName", "Output device",
+			AddCombo( PG_Audio, SecAudio, "DeviceName", "Output device",
 				"Speakers or headset for the game sound and the movies. The default follows the Windows default device.",
 				E, Cur );
 		}
-		AddSlider( 3, SecAudio, "MasterVolume", 255.f, "Master volume",
+		AddSlider( PG_Audio, SecAudio, "MasterVolume", 255.f, "Master volume",
 			"Overall volume. Sound effects volume is in the game's Audio/Video menu.", 0, 255, 1.f, 0, 1 );
-		AddSlider( 3, SecAudio, "MusicVolume", 63.f, "Music volume",
+		AddSlider( PG_Audio, SecAudio, "MusicVolume", 63.f, "Music volume",
 			"Volume of the music. The game's own menus have no setting for it.", 0, 255, 1.f, 0, 1 );
-		AddCheck( 3, SecAudio, "UseHRTF", true, "3D sound for headphones (HRTF)",
+		AddCheck( PG_Audio, SecAudio, "UseHRTF", true, "3D sound for headphones (HRTF)",
 			"Places sounds around you on headphones. Turn it off if sound seems odd on speakers." );
-		AddCheck( 3, SecAudio, "UseReverb", true, "Room reverb",
+		AddCheck( PG_Audio, SecAudio, "UseReverb", true, "Room reverb",
 			"Echo in caves, halls and corridors." );
-		AddCheck( 3, SecAudio, "UseCDMusic", true, "Music from ripped CD tracks",
-			"Plays the game CD's music from the Music folder (Track02.ogg and so on) in the ten levels that use it. "
+		AddCheck( PG_Audio, SecAudio, "UseCDMusic", true, "Music from ripped CD tracks",
+			"Plays the game CD's music from the music folder (Track02.ogg and so on) in the ten levels that use it. "
 			"See KHGWin-README.txt." );
+		AddEdit( PG_Audio, SecAudio, "CDMusicPath", "..\\Music", "CD music folder",
+			"Folder with the ripped CD tracks. A relative path starts from the System folder; ..\\Music is the Music folder of the install." );
 	}
 
 	void ShowPage( int Page )
 	{
+		CurPage = Page;
 		for( FItem& I : Items )
 		{
 			const int Cmd = I.Page == Page ? SW_SHOW : SW_HIDE;
@@ -664,12 +872,21 @@ struct FLauncher
 		}
 	}
 
+	static std::string EditText( HWND W )
+	{
+		char Buf[1024] = "";
+		GetWindowTextA( W, Buf, sizeof(Buf) );
+		return Trim( Buf );
+	}
+
 	bool Changed( const FItem& I ) const
 	{
 		if( I.Kind == K_Check )
 			return ( SendMessageA( I.Ctrl, BM_GETCHECK, 0, 0 ) == BST_CHECKED ) != I.InitialCheck;
 		if( I.Kind == K_Combo )
-			return (int)SendMessageW( I.Ctrl, CB_GETCURSEL, 0, 0 ) != I.InitialIndex;
+			return _stricmp( ComboValue( I ).c_str(), I.InitialValue.c_str() ) != 0;
+		if( I.Kind == K_Edit )
+			return EditText( I.Ctrl ) != I.InitialText;
 		return (int)SendMessageA( I.Ctrl, TBM_GETPOS, 0, 0 ) != I.InitialPos;
 	}
 
@@ -679,6 +896,22 @@ struct FLauncher
 		{
 			if( !Changed( I ) )
 				continue;
+			if( I.Special == SP_Portable )
+			{
+				const std::string Marker = BaseDir + "portable.txt";
+				if( SendMessageA( I.Ctrl, BM_GETCHECK, 0, 0 ) == BST_CHECKED )
+				{
+					HANDLE F = CreateFileA( Marker.c_str(), GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
+					if( F == INVALID_HANDLE_VALUE )
+						MessageBoxA( Wnd, ( "Could not create " + Marker + " (the game folder may be read-only, for example under "
+							"Program Files). Portable mode stays off." ).c_str(), "Klingon Honor Guard", MB_OK | MB_ICONWARNING );
+					else
+						CloseHandle( F );
+				}
+				else
+					DeleteFileA( Marker.c_str() );
+				continue;
+			}
 			if( I.Kind == K_Check )
 			{
 				Ini.Set( I.Section, I.Key, SendMessageA( I.Ctrl, BM_GETCHECK, 0, 0 ) == BST_CHECKED ? "True" : "False" );
@@ -691,10 +924,12 @@ struct FLauncher
 				Ini.Set( I.Section, I.Key, Buf );
 				continue;
 			}
-			const int Sel = (int)SendMessageW( I.Ctrl, CB_GETCURSEL, 0, 0 );
-			if( Sel < 0 || Sel >= (int)I.Values.size() )
+			if( I.Kind == K_Edit )
+			{
+				Ini.Set( I.Section, I.Key, EditText( I.Ctrl ) );
 				continue;
-			const std::string& V = I.Values[Sel];
+			}
+			const std::string V = ComboValue( I );
 			if( I.Special == SP_DisplayMode )
 			{
 				Ini.Set( SecClient, "StartupFullscreen", V == "window" ? "False" : "True" );
@@ -719,12 +954,76 @@ struct FLauncher
 			Ini.Set( SecKHG, "ShowLauncher", Show ? "True" : "False" );
 	}
 
+	bool Portable() const { return _stricmp( UserDir.c_str(), BaseDir.c_str() ) == 0; }
+
 	void OpenSavesFolder()
 	{
-		std::string Dir = UserDir;
-		if( _stricmp( UserDir.c_str(), BaseDir.c_str() ) == 0 )
-			Dir = BaseDir + "..\\Save";   // portable: the install's own Save folder, like retail
+		// Portable: the install's own Save folder, like retail.
+		const std::string Dir = Portable() ? BaseDir + "..\\Save" : UserDir;
 		ShellExecuteA( Wnd, "open", Dir.c_str(), NULL, NULL, SW_SHOWNORMAL );
+	}
+
+	void OpenLog()
+	{
+		const std::string Log = UserDir + "KHGWin.log";
+		if( GetFileAttributesA( Log.c_str() ) == INVALID_FILE_ATTRIBUTES )
+		{
+			MessageBoxA( Wnd, ( "There is no log yet: " + Log + " is written while the game runs." ).c_str(),
+				"Klingon Honor Guard", MB_OK | MB_ICONINFORMATION );
+			return;
+		}
+		ShellExecuteA( Wnd, "open", "notepad.exe", ( "\"" + Log + "\"" ).c_str(), NULL, SW_SHOWNORMAL );
+	}
+
+	void ResetSettings()
+	{
+		if( MessageBoxA( Wnd,
+			"Reset all settings to the defaults?\n\n"
+			"Key bindings and game options go back to your retail install's defaults, and the port's settings to the "
+			"port's defaults. Saved games are kept. The old settings are kept as KHGWin.ini.bak.",
+			"Reset settings", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 ) != IDYES )
+			return;
+		if( !KHGDesktopResetConfig( BaseDir.c_str(), "KHGWin", IniPath.c_str() ) )
+		{
+			MessageBoxA( Wnd, "Could not reset the settings (KHGWinDefaults.ini or the retail Default.ini is missing, "
+				"or KHGWin.ini can't be written). Nothing was changed.", "Reset settings", MB_OK | MB_ICONWARNING );
+			return;
+		}
+		Reopen = true;   // show the window again with the fresh settings
+		DestroyWindow( Wnd );
+	}
+
+	void BrowseFolder( FItem& I )
+	{
+		BROWSEINFOA BI;
+		memset( &BI, 0, sizeof(BI) );
+		BI.hwndOwner = Wnd;
+		BI.lpszTitle = "Folder with the ripped CD tracks";
+		BI.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+		LPITEMIDLIST Pidl = SHBrowseForFolderA( &BI );
+		if( !Pidl )
+			return;
+		char Path[MAX_PATH] = "";
+		if( SHGetPathFromIDListA( Pidl, Path ) )
+		{
+			std::string P = Path;
+			// Keep ..\Music relative when that is the folder picked.
+			char Full[MAX_PATH] = "";
+			GetFullPathNameA( ( BaseDir + "..\\Music" ).c_str(), MAX_PATH, Full, NULL );
+			if( _stricmp( Full, Path ) == 0 )
+				P = "..\\Music";
+			SetWindowTextA( I.Ctrl, P.c_str() );
+		}
+		CoTaskMemFree( Pidl );
+	}
+
+	HWND Button( const char* Text, int Id, int X, int Y, int W, DWORD Style, const char* Tip )
+	{
+		HWND B = CreateWindowExA( 0, "BUTTON", Text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | Style,
+			X, Y, W, S( 26 ), Wnd, (HMENU)(INT_PTR)Id, GetModuleHandleA( NULL ), NULL );
+		SetFont( B );
+		AddTip( B, Tip );
+		return B;
 	}
 
 	void Create()
@@ -768,30 +1067,29 @@ struct FLauncher
 			for( HWND W : { I.LabelWnd, I.Ctrl, I.ValueWnd } )
 				if( W )
 					SetWindowPos( W, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE );
-		ShowPage( 0 );
+		SendMessageA( Tab, TCM_SETCURSEL, CurPage, 0 );
+		ShowPage( CurPage );
 
 		// Bottom bar.
 		const int BY = S( ImageH ) + ( S( BarH ) - S( 26 ) ) / 2;
 		InitialShowAtStart = ParseBool( Get( SecKHG, "ShowLauncher", "" ), true );
 		ShowAtStart = CreateWindowExA( 0, "BUTTON", "Show this window at startup", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-			S( 14 ), BY + S( 2 ), S( 220 ), S( 22 ), Wnd, (HMENU)ID_SHOWATSTART, Inst, NULL );
+			S( 14 ), BY + S( 2 ), S( 200 ), S( 22 ), Wnd, (HMENU)ID_SHOWATSTART, Inst, NULL );
 		SendMessageA( ShowAtStart, BM_SETCHECK, InitialShowAtStart ? BST_CHECKED : BST_UNCHECKED, 0 );
 		SetFont( ShowAtStart );
 		AddTip( ShowAtStart, "Untick to start the game straight away next time. Hold Shift while starting KHGWin.exe "
 			"(or start it with -launcher) to bring this window back. -nolauncher skips it once." );
-		HWND Saves = CreateWindowExA( 0, "BUTTON", "Open saves folder", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-			S( 250 ), BY, S( 130 ), S( 26 ), Wnd, (HMENU)ID_SAVES, Inst, NULL );
-		SetFont( Saves );
-		AddTip( Saves, "Opens the folder with your saved games, KHGWin.ini and KHGWin.log." );
+		Button( "Saves folder", ID_SAVES, S( 222 ), BY, S( 100 ), BS_PUSHBUTTON,
+			"Opens the folder with your saved games (and KHGWin.ini and KHGWin.log)." );
+		Button( "Log", ID_LOG, S( 328 ), BY, S( 56 ), BS_PUSHBUTTON,
+			"Opens KHGWin.log from the last time the game ran, for reporting problems." );
+		Button( "Reset settings", ID_RESET, S( 390 ), BY, S( 106 ), BS_PUSHBUTTON,
+			"Puts every setting back to the defaults (asks first). Saved games are kept." );
 		const int Right = S( ImageW + PanelW );
-		HWND PlayBtn = CreateWindowExA( 0, "BUTTON", "Play", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-			Right - S( 196 ), BY, S( 96 ), S( 26 ), Wnd, (HMENU)ID_PLAY, Inst, NULL );
-		HWND QuitBtn = CreateWindowExA( 0, "BUTTON", "Quit", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-			Right - S( 94 ), BY, S( 84 ), S( 26 ), Wnd, (HMENU)ID_QUIT, Inst, NULL );
-		SetFont( PlayBtn );
-		SetFont( QuitBtn );
-		AddTip( PlayBtn, "Saves these settings to KHGWin.ini and starts the game." );
-		AddTip( QuitBtn, "Closes without starting the game or saving changes." );
+		HWND PlayBtn = Button( "Play", ID_PLAY, Right - S( 196 ), BY, S( 96 ), BS_DEFPUSHBUTTON,
+			"Saves these settings to KHGWin.ini and starts the game." );
+		Button( "Quit", ID_QUIT, Right - S( 94 ), BY, S( 84 ), BS_PUSHBUTTON,
+			"Closes without starting the game or saving changes." );
 
 		ShowWindow( Wnd, SW_SHOWNORMAL );
 		SetForegroundWindow( Wnd );
@@ -869,7 +1167,20 @@ struct FLauncher
 			return 0;
 		}
 		case WM_COMMAND:
-			switch( LOWORD( WParam ) )
+		{
+			const int Id = LOWORD( WParam );
+			if( Id >= ID_ITEM && Id < ID_ITEM + (int)Items.size() && HIWORD( WParam ) == CBN_SELCHANGE
+			 && Items[Id - ID_ITEM].Special == SP_Monitor )
+			{
+				FillModeCombos( atoi( ComboValue( Items[Id - ID_ITEM] ).c_str() ), false );
+				return 0;
+			}
+			if( Id >= ID_BROWSE && Id < ID_BROWSE + (int)Items.size() )
+			{
+				BrowseFolder( Items[Id - ID_BROWSE] );
+				return 0;
+			}
+			switch( Id )
 			{
 			case ID_PLAY:
 				Apply();
@@ -885,8 +1196,15 @@ struct FLauncher
 			case ID_SAVES:
 				OpenSavesFolder();
 				return 0;
+			case ID_LOG:
+				OpenLog();
+				return 0;
+			case ID_RESET:
+				ResetSettings();
+				return 0;
 			}
 			break;
+		}
 		case WM_CLOSE:
 			DestroyWindow( Wnd );
 			return 0;
@@ -1023,17 +1341,12 @@ bool KHGRunLauncher( const char* BaseDir, const char* UserDir, const char* IniPa
 		Init( &ICC );
 	}
 
-	FLauncher L;
-	L.BaseDir = BaseDir ? BaseDir : "";
-	L.UserDir = UserDir ? UserDir : "";
-	L.IniPath = IniPath ? IniPath : "";
-	L.Ini.Load( IniPath );
-	L.Dpi = SystemDpi();
-	LoadSplash( L.BaseDir, &L.Splash, &L.SplashW, &L.SplashH );
-	L.Font = CreateFontA( -MulDiv( 9, L.Dpi, 72 ), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+	const int Dpi = SystemDpi();
+	unsigned char* Splash = nullptr;
+	int SplashW = 0, SplashH = 0;
+	LoadSplash( BaseDir ? BaseDir : "", &Splash, &SplashW, &SplashH );
+	HFONT Font = CreateFontA( -MulDiv( 9, Dpi, 72 ), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
 		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI" );
-	L.PageBrush = GetSysColorBrush( COLOR_WINDOW );
-	L.BarBrush = GetSysColorBrush( COLOR_BTNFACE );
 
 	WNDCLASSEXA WC;
 	memset( &WC, 0, sizeof(WC) );
@@ -1046,18 +1359,38 @@ bool KHGRunLauncher( const char* BaseDir, const char* UserDir, const char* IniPa
 	WC.lpszClassName = "KHGLauncher";
 	RegisterClassExA( &WC );
 
-	L.Create();
-	MSG Msg;
-	while( GetMessageA( &Msg, NULL, 0, 0 ) > 0 )
+	// "Reset settings" rebuilds KHGWin.ini and opens the window again on the same tab.
+	bool Play = false, Reopen = true;
+	int Page = 0;
+	while( Reopen )
 	{
-		if( L.Wnd && IsWindow( L.Wnd ) && IsDialogMessageA( L.Wnd, &Msg ) )
-			continue;
-		TranslateMessage( &Msg );
-		DispatchMessageA( &Msg );
+		FLauncher L;
+		L.BaseDir = BaseDir ? BaseDir : "";
+		L.UserDir = UserDir ? UserDir : "";
+		L.IniPath = IniPath ? IniPath : "";
+		L.Ini.Load( IniPath );
+		L.Dpi = Dpi;
+		L.Splash = Splash; L.SplashW = SplashW; L.SplashH = SplashH;
+		L.Font = Font;
+		L.PageBrush = GetSysColorBrush( COLOR_WINDOW );
+		L.BarBrush = GetSysColorBrush( COLOR_BTNFACE );
+		L.CurPage = Page;
+		L.Create();
+		MSG Msg;
+		while( GetMessageA( &Msg, NULL, 0, 0 ) > 0 )
+		{
+			if( L.Wnd && IsWindow( L.Wnd ) && IsDialogMessageA( L.Wnd, &Msg ) )
+				continue;
+			TranslateMessage( &Msg );
+			DispatchMessageA( &Msg );
+		}
+		Play = L.Play;
+		Reopen = L.Reopen;
+		Page = L.CurPage;
 	}
 	UnregisterClassA( "KHGLauncher", GetModuleHandleA( NULL ) );
-	if( L.Font )
-		DeleteObject( L.Font );
-	free( L.Splash );
-	return L.Play;
+	if( Font )
+		DeleteObject( Font );
+	free( Splash );
+	return Play;
 }

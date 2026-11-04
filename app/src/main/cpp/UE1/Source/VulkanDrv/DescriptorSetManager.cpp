@@ -280,7 +280,9 @@ void DescriptorSetManager::UpdateFrameDescriptors()
 	write.AddCombinedImageSampler(Present.Set.get(), 0, textures->Scene->PPImageView[0].get(), samplers->PPLinearClamp.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	write.AddCombinedImageSampler(Present.Set.get(), 1, textures->DitherImageView.get(), samplers->PPNearestRepeat.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	// [KHG perf] Second present set that samples the scene ColorBuffer directly (blit-skip fast path).
-	write.AddCombinedImageSampler(Present.SetColorBuffer.get(), 0, textures->Scene->ColorBufferView.get(), samplers->PPLinearClamp.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	// With MSAA the fast path is never taken and ColorBuffer can't be sampled as a plain 2D image: point it at PPImage[0].
+	const bool msaa = textures->Scene->SceneSamples != VK_SAMPLE_COUNT_1_BIT;
+	write.AddCombinedImageSampler(Present.SetColorBuffer.get(), 0, msaa ? textures->Scene->PPImageView[0].get() : textures->Scene->ColorBufferView.get(), samplers->PPLinearClamp.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	write.AddCombinedImageSampler(Present.SetColorBuffer.get(), 1, textures->DitherImageView.get(), samplers->PPNearestRepeat.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	for (int level = 0; level < NumBloomLevels; level++)
 	{

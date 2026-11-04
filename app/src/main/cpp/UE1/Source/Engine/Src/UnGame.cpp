@@ -1232,6 +1232,47 @@ INT UGameEngine::GetMaxTickRate()
 	unguard;
 }
 
+// [KHG] Launcher FOV ([KHGWin] FOV, UnCamera.h). The first time a player class is seen its default FOVAngle (the
+// value script returns to) is remembered and replaced; the player's own FOV follows whenever it sits at that
+// original default, which also catches pawns restored from a save made at another FOV.
+ENGINE_API FLOAT GKHGFov = 0.f;
+static void KHGApplyFov( UClient* Client )
+{
+	static UClass* Classes[8];
+	static FLOAT   Original[8];
+	static INT     NumClasses = 0;
+	if( GKHGFov <= 0.f || !Client )
+		return;
+	for( INT v=0; v<Client->Viewports.Num(); v++ )
+	{
+		APlayerPawn* P = Client->Viewports(v)->Actor;
+		if( !P )
+			continue;
+		UClass* C = P->GetClass();
+		INT k;
+		for( k=0; k<NumClasses && Classes[k]!=C; k++ );
+		APlayerPawn* D = (APlayerPawn*)C->GetDefaultActor();
+		if( k==NumClasses )
+		{
+			if( NumClasses==ARRAY_COUNT(Classes) )
+				continue;
+			Classes[k] = C;
+			Original[k] = D->FovAngle;
+			NumClasses++;
+			D->FovAngle = GKHGFov;
+			if( D->DesiredFOV==Original[k] )
+				D->DesiredFOV = GKHGFov;
+			debugf( NAME_Log, "[KHG] FOV: %s default %.0f -> %.0f", C->GetName(), Original[k], GKHGFov );
+		}
+		if( P->DesiredFOV==Original[k] && Original[k]!=GKHGFov )
+		{
+			P->DesiredFOV = GKHGFov;
+			if( P->FovAngle==Original[k] )
+				P->FovAngle = GKHGFov;
+		}
+	}
+}
+
 //
 // Update everything.
 //
@@ -1265,6 +1306,8 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	// Update subsystems.
 	GObj.Tick();				
 	GCache.Tick();
+
+	KHGApplyFov( Client );
 
 	// Update the level.
 	guard(TickLevel);

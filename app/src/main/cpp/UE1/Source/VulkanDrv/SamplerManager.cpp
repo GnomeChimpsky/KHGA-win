@@ -31,7 +31,11 @@ void SamplerManager::CreateSceneSamplers()
 	for (int i = 0; i < 4; i++)
 	{
 		SamplerBuilder builder;
-		builder.Anisotropy(8.0f);
+		// [KHG] Anisotropy setting (1 = off), within the GPU's limit.
+		const float maxAniso = renderer->Device->PhysicalDevice.Properties.Properties.limits.maxSamplerAnisotropy;
+		const float aniso = std::max(1.0f, std::min((float)renderer->Anisotropy, maxAniso));
+		if (aniso > 1.0f)
+			builder.Anisotropy(aniso);
 		builder.MipLodBias(renderer->LODBias);
 
 		if (i & 1)

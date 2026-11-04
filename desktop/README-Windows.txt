@@ -20,7 +20,23 @@ the game's own menus can't change (display mode, any resolution, vsync,
 widescreen, lighting, raw mouse, controller, audio device, music volume and
 more). Hover over a setting for a short description. Play saves them to
 KHGWin.ini and starts the game; Quit closes without starting it. Only the
-settings you change are written.
+settings you change are written. "Reset settings" puts everything back to
+the defaults (the old file is kept as KHGWin.ini.bak; saves are kept).
+
+Settings that only the launcher adds (all off or retail by default):
+
+  [NSDLDrv.NSDLClient]
+  DefaultDisplay=0           monitor the game opens on (0 = the main one)
+  [Engine.PlayerPawn]
+  MouseSensitivity=3.0       finer steps than the Options menu's 1-10
+  [VulkanDrv.VulkanRenderDevice]
+  Antialiasing=0             MSAA samples: 0 = off, 2, 4 or 8
+  Anisotropy=8               anisotropic filtering: 1 = off, up to 16
+  [KHGWin]
+  FrameRateLimit=0           highest frame rate, 0 = no limit
+  FOV=90                     field of view across a 4:3 view; 90 = retail.
+                             The game resets its view to this value, and
+                             mouse speed grows with it as in retail.
 
 Untick "Show this window at startup" to start the game straight away. Hold
 Shift while starting KHGWin.exe (or start it with -launcher) to bring the

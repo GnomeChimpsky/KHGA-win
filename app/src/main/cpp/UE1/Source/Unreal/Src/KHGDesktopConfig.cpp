@@ -720,3 +720,33 @@ void KHGDesktopApplyUserPaths()
 			debugf( NAME_Init, "[KHG] WARNING: %s folder path too long (%s); using %s", P.Name, Full.c_str(), P.Path );
 	}
 }
+
+bool KHGDesktopResetConfig( const char* InBaseDir, const char* Package, const char* IniPath )
+{
+	const std::string Dir = InBaseDir ? InBaseDir : "";
+	const std::string Target = IniPath ? IniPath : "";
+	std::string Old, Overlay, Base;
+	ReadText( Target, Old );
+	if( !ReadText( Dir + Package + "Defaults.ini", Overlay ) )
+		return false;
+	static const char* BaseNames[] = { "Default.ini", "DEFAULT.INI", "default.ini", "Khg.ini", "KHG.INI", "khg.ini" };
+	bool Found = false;
+	for( const char* Name : BaseNames )
+		if( ( Found = ReadText( Dir + Name, Base ) ) )
+			break;
+	if( !Found )
+		return false;
+	std::string Ini = ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 );
+	if( !SlotSection( Old ).empty() )
+		Ini = KHGMergeIni( Ini, SlotSection( Old ) );   // the load menu's names for the saves that are there
+	const std::string Backup = Target + ".bak";
+	DeleteFileA( Backup.c_str() );
+	if( !Old.empty() && !MoveFileA( Target.c_str(), Backup.c_str() ) )
+		return false;
+	if( !WriteText( Target, Ini ) )
+	{
+		MoveFileA( Backup.c_str(), Target.c_str() );
+		return false;
+	}
+	return true;
+}

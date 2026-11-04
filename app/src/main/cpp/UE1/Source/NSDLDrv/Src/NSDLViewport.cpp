@@ -2110,10 +2110,19 @@ void UNSDLViewport::OpenWindow( void* InParentWindow, UBOOL Temporary, INT NewX,
 		}
 
 		// Set position and size.
+#if defined(_WIN32) && !defined(PLATFORM_ANDROID)
+		// [KHG] Open on the chosen monitor ([NSDLDrv.NSDLClient] DefaultDisplay, set by the launcher); fullscreen then
+		// uses that window's display.
+		if( OpenX==-1 )
+			OpenX = SDL_WINDOWPOS_CENTERED_DISPLAY( Client->DefaultDisplay );
+		if( OpenY==-1 )
+			OpenY = SDL_WINDOWPOS_CENTERED_DISPLAY( Client->DefaultDisplay );
+#else
 		if( OpenX==-1 )
 			OpenX = SDL_WINDOWPOS_UNDEFINED;
 		if( OpenY==-1 )
 			OpenY = SDL_WINDOWPOS_UNDEFINED;
+#endif
 
 		// If switching renderers, destroy the old window.
 		if( hWnd && ( DoOpenGL != !!( SDL_GetWindowFlags( hWnd ) & SDL_WINDOW_OPENGL ) ) )

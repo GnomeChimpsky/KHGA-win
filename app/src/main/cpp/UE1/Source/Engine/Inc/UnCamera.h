@@ -360,6 +360,10 @@ extern ENGINE_API UBOOL GKHGHorPlus;
 ENGINE_API FLOAT KHGHorPlusScale( UViewport* Viewport );
 // [KHG] Widescreen HUD (desktop build, UnCanvas.cpp): [KHGWin] WidescreenHUD / "WideHUD" console command.
 // GKHGWideHUDActive is set by UGameEngine::Draw only while PlayerPawn.PostRender draws the in-game HUD.
+// [KHG] Launcher: [KHGWin] FOV in KHGWin.ini. 0 (default) = retail. Build 219 keeps no FOV setting: PlayerPawn
+// resets DesiredFOV to Default.FOVAngle (90) at each level, respawn and zoom-out, so UGameEngine::Tick changes the
+// player class's default FOVAngle instead (UnGame.cpp). Mouse speed scales with the FOV in retail script.
+extern ENGINE_API FLOAT GKHGFov;
 extern ENGINE_API UBOOL GKHGWideHUD;
 extern ENGINE_API UBOOL GKHGWideHUDActive;
 
