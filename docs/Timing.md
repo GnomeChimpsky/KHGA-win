@@ -86,8 +86,8 @@ renderers; marks the player's zone as seen so bStasis actors near the player kee
 
 ## Results
 
-M02, 64-bit, from the cloud test machine (`-khgnodraw`, software Vulkan). The runs on real hardware go
-in `builds\tools\Timing`.
+M02, 64-bit. The cloud test machine (`-khgnodraw`, software Vulkan) and a real PC (M02 and M04A, 64-bit,
+drawing every frame, 2026-11-04) gave the same values.
 
 | Test | 60 Hz | 500 Hz | 1000 Hz | 500 Hz, fixes off |
 |---|---|---|---|---|
@@ -108,5 +108,14 @@ Differences that are left, all from the retail engine and script, not from the f
 - World test: one Tarchop loses 3 health at 60-240 Hz and none at 500 Hz and above, every run (it is
   the only change in the 20 s). Not traced to the end; the most likely cause is a landing that falls
   just on the other side of the retail fall damage threshold, like the jump height drift.
+- M04A pusher 3 (the one that throws the player furthest) moves the player 671 units at 60 Hz, 508 at
+  120 Hz, 582 at 144 Hz and 503-524 at 240-1000 Hz (1039 at 500 Hz with the fixes off). At 120 Hz the
+  pushes land at exactly the 60 Hz times, so the difference comes from the per-tick walking and
+  collision, not from the push. M04A's other four pushers and M02's stay within 5%.
+- Effect density with `FrameRateFixes=2` stays within about 25% of 60 Hz (M04A: 352-449 actors spawned in
+  20 s against 361 at 60 Hz; 3477 at 500 Hz with the fixes off). Effects whose Tick is on the list then
+  fire on a 1/60 s accumulator, which lines up differently with 144 Hz frames.
+- Grenade launcher alt fire: the projectile count jumps between runs (3, 12 or 39), because the
+  grenades bounce off the scenery differently.
 - DisruptorPistol ammo (10-12) and rocket projectiles (4-5) in 3 s: whether the last shot falls just
   inside or outside the 3 s.
