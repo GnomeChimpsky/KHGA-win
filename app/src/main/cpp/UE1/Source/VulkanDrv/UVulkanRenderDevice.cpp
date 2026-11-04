@@ -84,6 +84,8 @@ UVulkanRenderDevice::UVulkanRenderDevice()
 		GammaCorrectScreenshots = 0;
 #endif
 	VkDeviceIndex = 0;
+	Antialiasing = 0;       // [KHG] retail has no anti-aliasing
+	Anisotropy = 8;         // [KHG] the port's fixed value before the launcher setting
 	VkDebug = 0;
 	VkExclusiveFullscreen = 0;
 	UseBindless = 2;        // [KHG compat] Auto: bindless where supported, else the compatibility renderer
@@ -101,6 +103,8 @@ void UVulkanRenderDevice::InternalClassInitializer( UClass* Class )
 	new(Class, "LightMode",        RF_Public) UByteProperty ( CPP_PROPERTY(LightMode),        "Options", CPF_Config );
 	new(Class, "MirrorReflection", RF_Public) UFloatProperty( CPP_PROPERTY(MirrorReflection), "Options", CPF_Config );
 	new(Class, "VkDeviceIndex",    RF_Public) UIntProperty  ( CPP_PROPERTY(VkDeviceIndex),    "Options", CPF_Config );
+	new(Class, "Antialiasing",     RF_Public) UIntProperty  ( CPP_PROPERTY(Antialiasing),     "Options", CPF_Config );
+	new(Class, "Anisotropy",       RF_Public) UIntProperty  ( CPP_PROPERTY(Anisotropy),       "Options", CPF_Config );
 	new(Class, "VkDebug",          RF_Public) UBoolProperty ( CPP_PROPERTY(VkDebug),          "Options", CPF_Config );
 	new(Class, "UseBindless",      RF_Public) UIntProperty  ( CPP_PROPERTY(UseBindless),      "Options", CPF_Config );
 	unguard;

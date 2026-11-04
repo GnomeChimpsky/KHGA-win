@@ -4,6 +4,7 @@ if(USE_SDL)
   set(SRC_FILES "Src/SDLLaunch.cpp" "Src/KHGSplash.cpp")
   if(TARGET_IS_WINDOWS)
     list(APPEND SRC_FILES "Src/KHGDesktopConfig.cpp")   # [KHG] first-run KHGWin.ini from the retail defaults
+    list(APPEND SRC_FILES "Src/KHGLauncher.cpp")       # [KHG] settings window before the game starts
   endif()
 else()
   set(SRC_FILES "Src/WinLaunch.cpp")
@@ -35,6 +36,10 @@ target_include_directories(${PROJECT_NAME}
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/Src
 )
+if(USE_SDL AND TARGET_IS_WINDOWS)
+  # KHGLauncher.cpp lists the Vulkan GPUs through vulkan-1.dll (headers only).
+  target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ZVulkan/include)
+endif()
 
 if(USE_SDL)
   if(BUILD_STATIC)

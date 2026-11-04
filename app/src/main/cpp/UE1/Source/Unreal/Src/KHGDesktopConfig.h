@@ -31,6 +31,11 @@ void KHGDesktopPrepareConfig( const char* BaseDir, const char* Package );
 // retail SavePath=..\Save / CachePath=..\Cache, points them into the user folder (not written to the ini).
 void KHGDesktopApplyUserPaths();
 
+// Launcher "Reset settings": renames IniPath to IniPath.bak and builds a fresh one from the retail defaults
+// (Default.ini, else Khg.ini) + <Package>Defaults.ini + the port's input defaults, keeping the save slot names.
+// Saves are not touched. Returns false (and leaves the old file in place) if it can't.
+bool KHGDesktopResetConfig( const char* BaseDir, const char* Package, const char* IniPath );
+
 // Writes what KHGDesktopPrepareConfig did to the engine log. Call after appInit().
 void KHGDesktopLogConfigStatus();
 

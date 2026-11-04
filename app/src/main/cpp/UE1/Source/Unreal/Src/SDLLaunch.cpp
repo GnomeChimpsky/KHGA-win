@@ -15,6 +15,7 @@
 #ifdef PLATFORM_WIN32
 #include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
 #include "KHGTiming.h"   // [KHG] M8 frame pacing and -khgtiming (desktop build)
+#include "KHGLauncher.h"        // [KHG] settings window before the game starts (desktop build)
 #endif
 #ifdef PLATFORM_ANDROID
 #include <android/log.h>
@@ -4082,6 +4083,7 @@ static void KHGShowMicroProseSplashOnce( UEngine* Engine )
 // [KHG] Desktop: like the retail launcher's hWndSplash, show the MicroProse splash in its own centred, borderless window
 // while the engine starts up, and close it once the engine (and the game window) is up. Skipped if Khg.exe is absent.
 static SDL_Window*   GKHGSplashWindow   = NULL;
+static INT           GKHGSplashDisplay  = 0;   // [KHG] the game's monitor ([NSDLDrv.NSDLClient] DefaultDisplay), read in WinMain
 static SDL_Renderer* GKHGSplashRenderer = NULL;
 static SDL_Texture*  GKHGSplashTexture  = NULL;
 static void KHGOpenStartupSplash()
@@ -4092,7 +4094,8 @@ static void KHGOpenStartupSplash()
 		return;
 	if( SDL_InitSubSystem( SDL_INIT_VIDEO ) == 0 )
 	{
-		GKHGSplashWindow = SDL_CreateWindow( "Klingon Honor Guard", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+		const INT Display = ( GKHGSplashDisplay >= 0 && GKHGSplashDisplay < SDL_GetNumVideoDisplays() ) ? GKHGSplashDisplay : 0;
+		GKHGSplashWindow = SDL_CreateWindow( "Klingon Honor Guard", SDL_WINDOWPOS_CENTERED_DISPLAY( Display ), SDL_WINDOWPOS_CENTERED_DISPLAY( Display ), W, H,
 			SDL_WINDOW_BORDERLESS | SDL_WINDOW_SKIP_TASKBAR );
 		if( GKHGSplashWindow )
 			GKHGSplashRenderer = SDL_CreateRenderer( GKHGSplashWindow, -1, SDL_RENDERER_SOFTWARE );
@@ -4673,6 +4676,15 @@ void MainLoop( UEngine* Engine )
 	if( Parse( appCmdLine(), "KHGWIDEHUD=", WideHUDArg ) )
 		WideHUD = WideHUDArg != 0;
 	GKHGWideHUD = WideHUD;
+	// [KHG] Launcher setting [KHGWin] FOV (0 = retail, see UnCamera.h). FrameRateLimit is read by the M8
+	// frame pacer (KHGTiming.cpp).
+	FLOAT KHGFov = 0.f;
+	GetConfigFloat( "KHGWin", "FOV", KHGFov );
+	GKHGFov = ( KHGFov >= 60.f && KHGFov <= 150.f && KHGFov != 90.f ) ? KHGFov : 0.f;
+	char KHGFovText[32] = "retail (90)";
+	if( GKHGFov > 0.f )
+		appSprintf( KHGFovText, "%.0f", GKHGFov );
+	debugf( NAME_Log, "[KHG] Launcher settings: FOV=%s", KHGFovText );
 	debugf( NAME_Log, "[KHG] Widescreen: HorPlusFOV=%s WidescreenHUD=%s", GKHGHorPlus ? "True" : "False", GKHGWideHUD ? "True" : "False" );
 	if( PlayIntroAtStartup )
 		KHGPlayIntroFMVOnce( Engine );
@@ -4863,6 +4875,18 @@ int main( int argc, const char** argv )
 	// [KHG] Ini, log and saves go to Saved Games\Klingon Honor Guard unless portable (KHGDesktopConfig.cpp).
 	KHGDesktopChooseUserDir( appBaseDir(), appCmdLine() );
 	KHGDesktopPrepareConfig( appBaseDir(), appPackage() );
+	{
+		// [KHG] Launcher: settings the game's menus can't change, before appInit() reads KHGWin.ini (KHGLauncher.cpp).
+		const std::string KHGIni = std::string( appUserDir() ) + appPackage() + ".ini";
+		if( !GIsEditor && GIsClient && KHGLauncherWanted( appCmdLine(), KHGIni.c_str() )
+		 && !KHGRunLauncher( appBaseDir(), appUserDir(), KHGIni.c_str() ) )
+		{
+			// Quit: nothing is initialised yet, and the engine's static objects can't run their
+			// destructors before appInit(), so leave without them.
+			TerminateProcess( GetCurrentProcess(), 0 );
+		}
+		GKHGSplashDisplay = GetPrivateProfileIntA( "NSDLDrv.NSDLClient", "DefaultDisplay", 0, KHGIni.c_str() );
+	}
 #endif
 
 	// Init log.

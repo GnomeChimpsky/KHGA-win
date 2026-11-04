@@ -80,6 +80,8 @@ class DLL_EXPORT UVulkanRenderDevice : public URenderDevice
 	BYTE     GammaMode;
 	BYTE     LightMode;
 	FLOAT    MirrorReflection; // [KHG] how much of the reflection shows through translucent mirror floors (1 = full)
+	INT      Antialiasing;     // [KHG] MSAA samples for the scene (0/1 = off, 2, 4, 8); desktop only
+	INT      Anisotropy;       // [KHG] anisotropic texture filtering (1 = off .. 16), clamped to the GPU's limit
 	BITFIELD GlideGamma;   // [KHG] present gamma uses the 3dfx Glide ramp (0.5+1.5*Brightness) vs the flat Brightness*2.0
 	BITFIELD GammaCorrectScreenshots;
 	INT      VkDeviceIndex;
@@ -107,7 +109,11 @@ class DLL_EXPORT UVulkanRenderDevice : public URenderDevice
 		int ComplexSurfaces = 0, GouraudPolygons = 0, Tiles = 0, DrawCalls = 0, Uploads = 0, RectUploads = 0;
 	} Stats;
 
+#ifdef PLATFORM_ANDROID
 	int GetSettingsMultisample() { return 0; }   // [KHG] no MSAA on the mobile path
+#else
+	int GetSettingsMultisample() { return Antialiasing > 1 ? Antialiasing : 0; }   // [KHG] launcher setting
+#endif
 	// NOTE: Viewport is inherited from URenderDevice (219 base) — do NOT redeclare it here (shadowing
 	// would desync the engine's view of the device). SpanBased/FrameBuffered/SupportsFogMaps/etc. are
 	// likewise base members, set in the ctor.

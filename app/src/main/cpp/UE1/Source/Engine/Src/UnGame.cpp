@@ -1234,6 +1234,70 @@ INT UGameEngine::GetMaxTickRate()
 	unguard;
 }
 
+// [KHG] Launcher FOV ([KHGWin] FOV, UnCamera.h). The first time a player class is seen its default FOVAngle (the
+// value script returns to) is remembered and replaced; the player's own FOV follows whenever it sits at that
+// original default, which also catches pawns restored from a save made at another FOV.
+ENGINE_API FLOAT GKHGFov = 0.f;
+static void KHGApplyFov( UClient* Client )
+{
+	static UClass* Classes[8];
+	static FLOAT   Original[8];
+	static INT     NumClasses = 0;
+	if( GKHGFov <= 0.f || !Client )
+		return;
+	for( INT v=0; v<Client->Viewports.Num(); v++ )
+	{
+		APlayerPawn* P = Client->Viewports(v)->Actor;
+		if( !P )
+			continue;
+		UClass* C = P->GetClass();
+		INT k;
+		for( k=0; k<NumClasses && Classes[k]!=C; k++ );
+		APlayerPawn* D = (APlayerPawn*)C->GetDefaultActor();
+		if( k==NumClasses )
+		{
+			if( NumClasses==ARRAY_COUNT(Classes) )
+				continue;
+			Classes[k] = C;
+			Original[k] = D->FovAngle;
+			NumClasses++;
+			D->FovAngle = GKHGFov;
+			if( D->DesiredFOV==Original[k] )
+				D->DesiredFOV = GKHGFov;
+			debugf( NAME_Log, "[KHG] FOV: %s default %.0f -> %.0f", C->GetName(), Original[k], GKHGFov );
+		}
+		// Menus are laid out for the retail FOV: the character select (KlingonMenuPlayer/Mesh) puts the model and
+		// its backdrop at fixed offsets in front of the eye, so a wider view shows the level beside them. Use the
+		// original FOV while a menu is up and go back to the chosen one when it closes.
+		static UBOOL InMenu[16];
+		UBOOL& Menu = InMenu[v < ARRAY_COUNT(InMenu) ? v : 0];
+		if( P->bShowMenu )
+		{
+			if( !Menu || P->DesiredFOV==GKHGFov )
+			{
+				if( P->DesiredFOV==GKHGFov )
+					P->DesiredFOV = Original[k];
+				if( P->FovAngle==GKHGFov )
+					P->FovAngle = Original[k];
+			}
+			Menu = 1;
+			continue;
+		}
+		if( Menu )
+		{
+			Menu = 0;
+			if( P->FovAngle==Original[k] )
+				P->FovAngle = GKHGFov;
+		}
+		if( P->DesiredFOV==Original[k] && Original[k]!=GKHGFov )
+		{
+			P->DesiredFOV = GKHGFov;
+			if( P->FovAngle==Original[k] )
+				P->FovAngle = GKHGFov;
+		}
+	}
+}
+
 //
 // Update everything.
 //
@@ -1267,6 +1331,8 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	// Update subsystems.
 	GObj.Tick();				
 	GCache.Tick();
+
+	KHGApplyFov( Client );
 
 	// Update the level.
 	guard(TickLevel);
