@@ -6,6 +6,9 @@
 #include "AL/alc.h"
 #include "xmp.h"
 #include "Engine.h"
+#ifdef KHG_GALAXYREVERB
+#include "GalaxyReverb.h"
+#endif
 
 /*------------------------------------------------------------------------------------
 	OpenAL audio subsystem private definitions.
@@ -49,6 +52,7 @@ class DLL_EXPORT UNOpenALAudioSubsystem : public UAudioSubsystem
 	UBOOL UseCDMusic;
 	char CDMusicPath[256];
 #endif
+	UBOOL UseDigitalMusic; // [KHG] Galaxy's switch for module (UMX) music
 
 	// Constructors.
 	static void InternalClassInitializer( UClass* Class );
@@ -88,7 +92,40 @@ private:
 	ALuint ReverbEffect;
 	ALuint ReverbSlot;
 	UBOOL ReverbOn;
+	UBOOL EfxReverb = false; // EFX reverb (Android); the desktop build uses Galaxy's echo instead
 	AZoneInfo* ReverbZone;
+
+#ifdef KHG_GALAXYREVERB
+	// [KHG] Sound effects are mixed on an OpenAL Soft loopback device, Galaxy's zone echo is added
+	// to that mix (GalaxyReverb.cpp), and the result is streamed to the real device. Music and the
+	// CD track stay on the real device, as Galaxy mixes them after its reverb.
+	ALCdevice* FxDevice = nullptr;
+	ALCcontext* FxCtx = nullptr;        // loopback context: effect sources and buffers
+	ALuint FxOutSource = INVALID_SOURCE; // real context: streams the effects mix
+	ALuint FxOutBuffers[8];
+	ALuint FreeFxOutBuffers[8];
+	INT NumFreeFxOutBuffers = 0;
+	INT FxChannels = 2;
+	ALenum FxOutFormat = 0;
+	struct FGalaxyReverb* GalaxyReverb = nullptr;
+	FGalaxyReverbParms GalaxyParms;     // what the echo was last set to
+	FGalaxyReverbParms PendingGalaxyParms;
+	UBOOL GalaxyParmsPending = false;
+	FMutex FxMutex { "FxMutex" };
+	volatile UBOOL FxThreadRunning = false;
+	UTHREAD FxThread = nullptr;
+	UBOOL InitFxLoopback();
+	void ShutdownFxLoopback();
+	void UpdateGalaxyReverb();
+	void PumpFxStream();
+	#ifdef PLATFORM_WIN32
+	static DWORD __stdcall FxThreadProc( void* Audio );
+	#else
+	static void* FxThreadProc( void* Audio );
+	#endif
+#endif
+	// Context of the music and CD sources (the real device), see FMusicCtxScope.
+	ALCcontext* MusicALCtx() const { return Ctx; }
 
 	xmp_context MusicCtx;
 	UMusic* Music;

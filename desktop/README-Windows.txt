@@ -188,9 +188,30 @@ as the retail game does without the CD. KHGWin.log says which file it plays
 
   [NOpenALDrv.NOpenALAudioSubsystem]
   UseCDMusic=True            False = never play CD tracks
+  UseDigitalMusic=True       False = never play the module music (.umx)
   CDMusicPath=..\Music       folder with the track files (relative to System)
 
+Like the retail Galaxy audio, the level's module music plays only with
+UseDigitalMusic and the CD track only with UseCDMusic. KHGWin takes both from
+your retail Khg.ini the first time it runs (the retail game's "CD music" and
+"digital music" choice), so it plays the same music as Khg.exe. Some installs
+have a fan patch that turns the CD tracks into .umx files (track2.umx and so
+on, Khg.ini with UseCDMusic=False); turning both on there plays the same piece
+twice.
+
 The console command "cdtrack 2" plays a track, like in retail.
+
+Room reverb
+-----------
+Areas the level designers marked as reverb zones (caves, halls, corridors) echo
+the way they do in the retail game: KHGWin rebuilds the retail Galaxy audio's
+own echo (six echo taps per zone with feedback and treble damping, from the
+zone's Delay, Gain, MasterGain and CutoffHz), on the sound effects only, not on
+the music. KHGWin.log has a "[KHG] Reverb:" line whenever it changes.
+UseReverb=False in [NOpenALDrv.NOpenALAudioSubsystem] turns it off. (Retail can
+also use EAX 1.0 or Aureal A3D hardware with Use3dHardware=True; that needs a
+1998 sound card and Windows 98, so the software echo is what retail sounds like
+today.)
 
 Keyboard, mouse and controller
 ------------------------------

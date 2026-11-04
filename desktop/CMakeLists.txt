@@ -112,6 +112,9 @@ target_include_directories(NSDLDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # KHG_CDMUSIC: PlayerPawn.CdTrack is played from ripped track files (NOpenALDrv/CDMusic.cpp).
 target_sources(NOpenALDrv PRIVATE "${UE1_ROOT}/Source/NOpenALDrv/CDMusic.cpp")
 target_compile_definitions(NOpenALDrv PRIVATE KHG_CDMUSIC)
+# KHG_GALAXYREVERB: effects mixed on a loopback device with the retail Galaxy zone echo (GalaxyReverb.cpp).
+target_sources(NOpenALDrv PRIVATE "${UE1_ROOT}/Source/NOpenALDrv/GalaxyReverb.cpp")
+target_compile_definitions(NOpenALDrv PRIVATE KHG_GALAXYREVERB)
 target_link_libraries(NOpenALDrv ff_avformat ff_avcodec ff_avutil ff_swresample)
 target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # M8: frame pacing and the -khgtiming test mode.

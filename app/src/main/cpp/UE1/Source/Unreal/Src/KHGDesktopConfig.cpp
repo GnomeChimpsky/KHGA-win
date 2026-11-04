@@ -474,6 +474,54 @@ static bool ReadRetailIni( const std::string& BaseDir, std::string& Out, std::st
 	return false;
 }
 
+// [KHG] Audio defaults, applied when KHGWin.ini is created and once to an existing one ([KHGWin]
+// AudioDefaults below 1): Galaxy's music switches as the retail game uses them. Galaxy plays the
+// level's module music (Song) only with UseDigitalMusic and the CD track (CdTrack) only with
+// UseCDMusic; KHGWin used to play both. The values come from the retail Khg.ini (what Khg.exe
+// reads), else Default.ini; with neither, KHGWin's defaults (both on) stay.
+static const int kAudioDefaultsVersion = 1;
+
+static int AudioDefaultsIn( const std::string& Ini )
+{
+	const std::string V = IniValue( Ini, "KHGWin", "AudioDefaults" );
+	return V.empty() ? 0 : atoi( V.c_str() );
+}
+
+static std::string ApplyAudioDefaults( std::string Ini, const std::string& Dir )
+{
+	std::string Retail, Where;
+	std::string CD, Digital;
+	if( ReadRetailIni( Dir, Retail, Where ) )
+	{
+		CD = IniValue( Retail, "Galaxy.GalaxyAudioSubsystem", "UseCDMusic" );
+		Digital = IniValue( Retail, "Galaxy.GalaxyAudioSubsystem", "UseDigitalMusic" );
+	}
+	if( CD.empty() && Digital.empty() )
+	{
+		static const char* Names[] = { "Default.ini", "DEFAULT.INI", "default.ini" };
+		for( const char* Name : Names )
+			if( ReadText( FullPath( Dir, Name ), Retail ) )
+			{
+				Where = FullPath( Dir, Name );
+				CD = IniValue( Retail, "Galaxy.GalaxyAudioSubsystem", "UseCDMusic" );
+				Digital = IniValue( Retail, "Galaxy.GalaxyAudioSubsystem", "UseDigitalMusic" );
+				break;
+			}
+	}
+	std::string Overlay = "[NOpenALDrv.NOpenALAudioSubsystem]\r\n";
+	if( !CD.empty() )
+		Overlay += "UseCDMusic=" + CD + "\r\n";
+	if( !Digital.empty() )
+		Overlay += "UseDigitalMusic=" + Digital + "\r\n";
+	char Mark[64];
+	snprintf( Mark, sizeof(Mark), "[KHGWin]\r\nAudioDefaults=%d\r\n", kAudioDefaultsVersion );
+	Overlay += Mark;
+	if( !CD.empty() || !Digital.empty() )
+		GMigrationLog.push_back( "music switches taken from " + Where + ": UseCDMusic=" + ( CD.empty() ? "(unset)" : CD )
+			+ ", UseDigitalMusic=" + ( Digital.empty() ? "(unset)" : Digital ) );
+	return KHGMergeIni( Ini, Overlay );
+}
+
 // Copies every *.usa in From to To that To doesn't have yet. Returns how many were copied.
 static int CopySaves( const std::string& From, const std::string& To )
 {
@@ -815,6 +863,13 @@ static void PrepareConfig( const char* BaseDir, const char* Package )
 			}
 		}
 		GConfigStatus = "using existing " + Target;
+		if( AudioDefaultsIn( Existing ) < kAudioDefaultsVersion )
+		{
+			if( WriteText( Target, ApplyAudioDefaults( Existing, Dir ) ) )
+				ReadText( Target, Existing );
+			else
+				GMigrationLog.push_back( "WARNING: could not apply the audio defaults to " + Target );
+		}
 		const int Have = InputDefaultsIn( Existing );
 		if( Have < kInputDefaultsVersion )
 		{
@@ -833,6 +888,8 @@ static void PrepareConfig( const char* BaseDir, const char* Package )
 	{
 		const int Have = InputDefaultsIn( OldPortIni );
 		std::string Ini = Have < kInputDefaultsVersion ? ApplyInputDefaults( OldPortIni, Have ) : OldPortIni;
+		if( AudioDefaultsIn( Ini ) < kAudioDefaultsVersion )
+			Ini = ApplyAudioDefaults( Ini, Dir );
 		Ini = MigrateSaves( Dir, UserDir, Ini, OldPortIni );
 		if( !WriteText( Target, Ini ) )
 		{
@@ -865,7 +922,7 @@ static void PrepareConfig( const char* BaseDir, const char* Package )
 	if( BaseName.empty() )
 		Base.clear();
 
-	std::string Ini = ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 );
+	std::string Ini = ApplyAudioDefaults( ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 ), Dir );
 	if( MigratesFromInstall() )
 		Ini = MigrateSaves( Dir, UserDir, Ini, std::string() );
 	else if( GUserDirMode == UDM_Portable && IsRetailDefaultPath( IniValue( Ini, "Core.System", "SavePath" ), "Save" ) )
@@ -959,7 +1016,7 @@ bool KHGDesktopResetConfig( const char* InBaseDir, const char* Package, const ch
 			break;
 	if( !Found )
 		return false;
-	std::string Ini = ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 );
+	std::string Ini = ApplyAudioDefaults( ApplyInputDefaults( KHGMergeIni( Base, Overlay ), 0 ), Dir );
 	if( !SlotSection( Old ).empty() )
 		Ini = KHGMergeIni( Ini, SlotSection( Old ) );   // the load menu's names for the saves that are there
 	const std::string Backup = Target + ".bak";

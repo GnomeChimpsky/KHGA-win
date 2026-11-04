@@ -19,6 +19,33 @@
 -----------------------------------------------------------------------------*/
 
 IMPLEMENT_PACKAGE(NOpenALDrv);
+
+#ifdef KHG_GALAXYREVERB
+// [KHG] The effect sources live in the loopback context (the global current one); music and CD
+// calls switch the calling thread to the real device's context for their scope.
+struct FALThreadCtxScope
+{
+	ALCcontext* Prev;
+	bool Changed;
+	explicit FALThreadCtxScope( ALCcontext* C ) : Prev( alcGetThreadContext() ), Changed( C && C != Prev )
+	{
+		if( Changed )
+			alcSetThreadContext( C );
+	}
+	~FALThreadCtxScope()
+	{
+		if( Changed )
+			alcSetThreadContext( Prev );
+	}
+};
+#define MUSIC_AL_SCOPE FALThreadCtxScope MusicALScope( Ctx )
+#else
+#define MUSIC_AL_SCOPE
+#endif
+
+#ifdef KHG_GALAXYREVERB
+#define FX_FRAMES 256        // per streamed buffer: 5.8 ms at 44100 Hz
+#endif
 IMPLEMENT_CLASS(UNOpenALAudioSubsystem);
 
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
@@ -47,6 +74,7 @@ void UNOpenALAudioSubsystem::InternalClassInitializer( UClass* Class )
 	new(Class, "UseReverb",          RF_Public)UBoolProperty  ( CPP_PROPERTY( UseReverb          ), "Audio", CPF_Config );
 	new(Class, "UseHRTF",            RF_Public)UBoolProperty  ( CPP_PROPERTY( UseHRTF            ), "Audio", CPF_Config );
 	new(Class, "MusicInterpolation", RF_Public)UByteProperty  ( CPP_PROPERTY( MusicInterpolation ), "Audio", CPF_Config );
+	new(Class, "UseDigitalMusic",    RF_Public)UBoolProperty  ( CPP_PROPERTY( UseDigitalMusic    ), "Audio", CPF_Config );
 #ifdef KHG_CDMUSIC
 	new(Class, "UseCDMusic",         RF_Public)UBoolProperty  ( CPP_PROPERTY( UseCDMusic         ), "Audio", CPF_Config );
 	new(Class, "CDMusicPath",        RF_Public)UStringProperty( CPP_PROPERTY( CDMusicPath        ), "Audio", CPF_Config, sizeof(CDMusicPath)-1 );
@@ -65,6 +93,7 @@ UNOpenALAudioSubsystem::UNOpenALAudioSubsystem()
 	UseHRTF = true;
 	UseReverb = true;
 	MusicInterpolation = XMP_INTERP_LINEAR;
+	UseDigitalMusic = true;
 #ifdef KHG_CDMUSIC
 	UseCDMusic = true;
 	appStrcpy( CDMusicPath, "..\\Music" );
@@ -120,12 +149,7 @@ UBOOL UNOpenALAudioSubsystem::Init()
 	// [KHG] Say which output device OpenAL Soft opened (on Windows its first choice is WASAPI).
 	debugf( NAME_Init, "OpenAL: %s, device '%s', %d Hz", alGetString( AL_VERSION ), alcGetString( Device, ALC_DEVICE_SPECIFIER ), OutputRate );
 
-	alDistanceModel( AL_LINEAR_DISTANCE_CLAMPED );
-	alDopplerFactor( Max( 0.f, DopplerFactor ) );
-	alListenerf( AL_METERS_PER_UNIT, DISTANCE_SCALE );
 	alListenerf( AL_GAIN, MasterVolume / 255.f );
-
-	alGenSources( MAX_SOURCES, Sources );
 
 	alGenSources( 1, &MusicSource	);
 	alSourcei( MusicSource, AL_SOURCE_RELATIVE, AL_TRUE );
@@ -155,7 +179,25 @@ UBOOL UNOpenALAudioSubsystem::Init()
 	debugf( NAME_Init, "CD music: %s, tracks from '%s'", UseCDMusic ? "on" : "off (UseCDMusic=False)", CDMusicPath );
 #endif
 
-	if( UseReverb )
+	debugf( NAME_Init, "Module music: %s", UseDigitalMusic ? "on" : "off (UseDigitalMusic=False)" );
+
+#ifdef KHG_GALAXYREVERB
+	// Effects on a loopback device, so Galaxy's zone echo can be added to their mix.
+	if( !InitFxLoopback() )
+		debugf( NAME_Warning, "[KHG] Effects loopback unavailable; sound effects play without zone reverb" );
+	EfxReverb = false;
+#else
+	EfxReverb = UseReverb;
+#endif
+
+	// Effect sources and listener (the loopback context when there is one).
+	alDistanceModel( AL_LINEAR_DISTANCE_CLAMPED );
+	alDopplerFactor( Max( 0.f, DopplerFactor ) );
+	alListenerf( AL_METERS_PER_UNIT, DISTANCE_SCALE );
+	alListenerf( AL_GAIN, MasterVolume / 255.f );
+	alGenSources( MAX_SOURCES, Sources );
+
+	if( EfxReverb )
 	{
 		alGenEffects( 1, &ReverbEffect );
 		InitReverbEffect();
@@ -199,6 +241,14 @@ void UNOpenALAudioSubsystem::Destroy()
 #ifdef KHG_CDMUSIC
 	StopCDTrack();
 #endif
+#ifdef KHG_GALAXYREVERB
+	if( FxThread )
+	{
+		FxThreadRunning = false;
+		appThreadJoin( FxThread );
+		FxThread = nullptr;
+	}
+#endif
 
 	USound::Audio = NULL;
 	UMusic::Audio = NULL;
@@ -210,7 +260,7 @@ void UNOpenALAudioSubsystem::Destroy()
 		MusicCtx = NULL;
 	}
 
-	if (UseReverb)
+	if (EfxReverb)
 	{
 		alDeleteAuxiliaryEffectSlots(1, &ReverbSlot);
 		alDeleteEffects(1, &ReverbEffect);
@@ -220,14 +270,23 @@ void UNOpenALAudioSubsystem::Destroy()
 	{
 		// If we have a context, we probably have everything else. Kill it.
 		SetViewport( NULL ); // This will also stop all sounds.
-		alDeleteBuffers( Buffers.Num(), &Buffers(0) );
-		alDeleteBuffers( ARRAY_COUNT( MusicBuffers ), MusicBuffers );
+		if( Buffers.Num() )
+			alDeleteBuffers( Buffers.Num(), &Buffers(0) );
 		alDeleteSources( MAX_SOURCES, Sources );
-		alDeleteSources( 1, &MusicSource );
+		{
+			MUSIC_AL_SCOPE;
+			alSourceStop( MusicSource );
+			alSourcei( MusicSource, AL_BUFFER, 0 );
+			alDeleteBuffers( ARRAY_COUNT( MusicBuffers ), MusicBuffers );
+			alDeleteSources( 1, &MusicSource );
 #ifdef KHG_CDMUSIC
-		alDeleteBuffers( NUM_MUSIC_BUFFERS, CDBuffers );
-		alDeleteSources( 1, &CDSource );
-		CDSource = INVALID_SOURCE;
+			alDeleteBuffers( NUM_MUSIC_BUFFERS, CDBuffers );
+			alDeleteSources( 1, &CDSource );
+			CDSource = INVALID_SOURCE;
+#endif
+		}
+#ifdef KHG_GALAXYREVERB
+		ShutdownFxLoopback();
 #endif
 		alcMakeContextCurrent( NULL );
 		alcDestroyContext( Ctx );
@@ -257,6 +316,14 @@ void UNOpenALAudioSubsystem::ShutdownAfterError()
 #endif
 
 	StopMusicThread();
+#ifdef KHG_GALAXYREVERB
+	if( FxThread )
+	{
+		FxThreadRunning = false;
+		appThreadJoin( FxThread );
+		FxThread = nullptr;
+	}
+#endif
 
 	USound::Audio = NULL;
 	UMusic::Audio = NULL;
@@ -275,11 +342,30 @@ void UNOpenALAudioSubsystem::ShutdownAfterError()
 		MusicCtx = NULL;
 		Music = NULL;
 	}
-	if (UseReverb)
+	if (EfxReverb)
 	{
 		alDeleteAuxiliaryEffectSlots(1, &ReverbSlot);
 		alDeleteEffects(1, &ReverbEffect);
 	}
+#ifdef KHG_GALAXYREVERB
+	if( FxCtx )
+	{
+		alcSetThreadContext( NULL );
+		alcMakeContextCurrent( Ctx );
+		alcDestroyContext( FxCtx );
+		FxCtx = nullptr;
+	}
+	if( FxDevice )
+	{
+		alcCloseDevice( FxDevice );
+		FxDevice = nullptr;
+	}
+	if( GalaxyReverb )
+	{
+		GalaxyReverbDestroy( GalaxyReverb );
+		GalaxyReverb = nullptr;
+	}
+#endif
 	if( Ctx )
 	{
 		alcMakeContextCurrent( NULL );
@@ -314,6 +400,8 @@ void UNOpenALAudioSubsystem::PostEditChange()
 	{
 		alListenerf( AL_GAIN, MasterVolume / 255.f );
 		alDopplerFactor( DopplerFactor );
+		MUSIC_AL_SCOPE;
+		alListenerf( AL_GAIN, MasterVolume / 255.f );
 		alSourcef( MusicSource, AL_GAIN, Max(MusicFade, 0.f) * MusicVolume / 255.f );
 #ifdef KHG_CDMUSIC
 		alSourcef( CDSource, AL_GAIN, MusicVolume / 255.f );
@@ -545,7 +633,7 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 		}
 	}
 
-	if( UseReverb && Op == NVOP_Play )
+	if( EfxReverb && Op == NVOP_Play )
 		alSource3i( Source, AL_AUXILIARY_SEND_FILTER, (ALint)ReverbSlot, 0, AL_FILTER_NULL );
 
 	// Play or stop if needed.
@@ -676,6 +764,7 @@ void UNOpenALAudioSubsystem::PlayMusic()
 	guard(UNOpenALAudioSubsystem::PlayMusic)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 	alSourceStop(MusicSource);
 	ClearMusicBuffers();
@@ -696,6 +785,7 @@ void UNOpenALAudioSubsystem::StopMusic()
 	guard(UNOpenALAudioSubsystem::StopMusic)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 	MusicIsPlaying = false;
 	alSourceStop( MusicSource );
@@ -799,8 +889,12 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 	alListenerfv( AL_ORIENTATION, ALOrientation );
 	ListenerCoords = Listener;
 
+#ifdef KHG_GALAXYREVERB
+	UpdateGalaxyReverb();
+#else
 	if( UseReverb )
 		UpdateReverb( Region );
+#endif
 
 	// Start new ambient sounds if needed.
 	if( Viewport->Actor && Viewport->Actor->XLevel )
@@ -947,6 +1041,7 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 			}
 			else
 			{
+				MUSIC_AL_SCOPE;
 				alSourcef( MusicSource, AL_GAIN, Max(MusicFade, 0.f) * MusicVolume / 255.f );
 			}
 
@@ -957,14 +1052,18 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 		{
 			FScopedLock Lock( MusicMutex );
 			MusicFade = 1.f;
-			alSourcef( MusicSource, AL_GAIN, Max(MusicFade, 0.f) * MusicVolume / 255.f );
+			{
+				MUSIC_AL_SCOPE;
+				alSourcef( MusicSource, AL_GAIN, Max(MusicFade, 0.f) * MusicVolume / 255.f );
+			}
 			Music = Viewport->Actor->Song;
 			MusicSection = Viewport->Actor->SongSection;
 			if( Music )
 			{
 				if( MusicChanged )
 					RegisterMusic( Music );
-				if( MusicSection != 255 )
+				// Like Galaxy, the song is still followed for transitions but only played with UseDigitalMusic.
+				if( MusicSection != 255 && UseDigitalMusic )
 					PlayMusic();
 				else
 					StopMusic();
@@ -987,6 +1086,7 @@ void UNOpenALAudioSubsystem::UpdateMusicBuffers()
 	guard(UNOpenALAudioSubsystem::UpdateMusicBuffers)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 #if defined(PLATFORM_ANDROID) || defined(UNREAL_ANDROID) || defined(__ANDROID__)
 	if( AndroidSuspended )
@@ -1033,6 +1133,7 @@ void UNOpenALAudioSubsystem::ClearMusicBuffers()
 	guard(UNOpenALAudioSubsystem::ClearMusicBuffers)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 	appMemset( (void*)MusicBufferData, 0, sizeof(MusicBufferData) );
 
@@ -1247,6 +1348,7 @@ void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
 	debugf( NAME_Log, "[KHG] CD track %i: playing %s", Track, File.c_str() );
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 	CDStream = Stream;
 	alSourcef( CDSource, AL_GAIN, MusicVolume / 255.f );
 
@@ -1258,6 +1360,7 @@ void UNOpenALAudioSubsystem::StopCDTrack()
 	guard(UNOpenALAudioSubsystem::StopCDTrack)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 	if( CDStream )
 	{
@@ -1281,6 +1384,7 @@ void UNOpenALAudioSubsystem::UpdateCDBuffers()
 	guard(UNOpenALAudioSubsystem::UpdateCDBuffers)
 
 	FScopedLock Lock( MusicMutex );
+	MUSIC_AL_SCOPE;
 
 	if( CDSource == INVALID_SOURCE )
 		return;
@@ -1321,5 +1425,238 @@ void UNOpenALAudioSubsystem::UpdateCDBuffers()
 		alSourcePlay( CDSource );
 
 	unguard;
+}
+#endif
+
+#ifdef KHG_GALAXYREVERB
+/*-----------------------------------------------------------------------------
+	[KHG] Galaxy zone reverb: effects loopback + streamed output.
+-----------------------------------------------------------------------------*/
+
+UBOOL UNOpenALAudioSubsystem::InitFxLoopback()
+{
+	guard(UNOpenALAudioSubsystem::InitFxLoopback)
+
+	if( !alcIsExtensionPresent( NULL, "ALC_SOFT_loopback" ) || !alcIsExtensionPresent( NULL, "ALC_EXT_thread_local_context" ) )
+		return false;
+
+	// Mix the effects with the real device's speaker layout, so 5.1/7.1 output still works.
+	ALCint OutMode = 0;
+	if( alcIsExtensionPresent( Device, "ALC_SOFT_output_mode" ) )
+		alcGetIntegerv( Device, ALC_OUTPUT_MODE_SOFT, 1, &OutMode );
+	ALCint Chans = ALC_STEREO_SOFT;
+	const char* FormatName = "AL_FORMAT_STEREO16";
+	FxChannels = 2;
+	switch( OutMode )
+	{
+		case ALC_QUAD_SOFT:          Chans = ALC_QUAD_SOFT;     FormatName = "AL_FORMAT_QUAD16";  FxChannels = 4; break;
+		case ALC_SURROUND_5_1_SOFT:  Chans = ALC_5POINT1_SOFT;  FormatName = "AL_FORMAT_51CHN16"; FxChannels = 6; break;
+		case ALC_SURROUND_6_1_SOFT:  Chans = ALC_6POINT1_SOFT;  FormatName = "AL_FORMAT_61CHN16"; FxChannels = 7; break;
+		case ALC_SURROUND_7_1_SOFT:  Chans = ALC_7POINT1_SOFT;  FormatName = "AL_FORMAT_71CHN16"; FxChannels = 8; break;
+		default: break;
+	}
+	FxOutFormat = FxChannels == 2 ? AL_FORMAT_STEREO16 : alGetEnumValue( FormatName );
+	if( !FxOutFormat || FxOutFormat == -1 )
+	{
+		Chans = ALC_STEREO_SOFT;
+		FxChannels = 2;
+		FxOutFormat = AL_FORMAT_STEREO16;
+	}
+
+	FxDevice = alcLoopbackOpenDeviceSOFT( NULL );
+	if( !FxDevice )
+		return false;
+	if( !alcIsRenderFormatSupportedSOFT( FxDevice, OutputRate, Chans, ALC_SHORT_SOFT ) )
+	{
+		alcCloseDevice( FxDevice );
+		FxDevice = nullptr;
+		return false;
+	}
+	const ALCint Attr[] = {
+		ALC_FORMAT_CHANNELS_SOFT, Chans,
+		ALC_FORMAT_TYPE_SOFT, ALC_SHORT_SOFT,
+		ALC_FREQUENCY, OutputRate,
+		// HRTF exactly when the real device uses it (OpenAL Soft turns it on for headphones), as before.
+		ALC_HRTF_SOFT, UseHRTF && OutMode == ALC_STEREO_HRTF_SOFT ? ALC_TRUE : ALC_FALSE,
+		0
+	};
+	FxCtx = alcCreateContext( FxDevice, Attr );
+	if( !FxCtx )
+	{
+		alcCloseDevice( FxDevice );
+		FxDevice = nullptr;
+		return false;
+	}
+
+	// The effects mix plays on the real device as it is, without HRTF or panning of its own.
+	alGenSources( 1, &FxOutSource );
+	alSourcei( FxOutSource, AL_SOURCE_RELATIVE, AL_TRUE );
+	alSource3f( FxOutSource, AL_POSITION, 0.f, 0.f, 0.f );
+	alSourcef( FxOutSource, AL_ROLLOFF_FACTOR, 0.f );
+	alSourcei( FxOutSource, AL_DIRECT_CHANNELS_SOFT, AL_TRUE );
+	alGenBuffers( ARRAY_COUNT( FxOutBuffers ), FxOutBuffers );
+	for( INT i = 0; i < ARRAY_COUNT( FxOutBuffers ); ++i )
+		FreeFxOutBuffers[i] = FxOutBuffers[i];
+	NumFreeFxOutBuffers = ARRAY_COUNT( FxOutBuffers );
+
+	GalaxyReverb = GalaxyReverbCreate( OutputRate );
+	GalaxyParms = FGalaxyReverbParms();
+	GalaxyParmsPending = false;
+
+	// From here on, al* calls go to the effects context unless a scope switches to Ctx.
+	alcMakeContextCurrent( FxCtx );
+
+	ALCint Hrtf = 0;
+	alcGetIntegerv( FxDevice, ALC_HRTF_SOFT, 1, &Hrtf );
+	debugf( NAME_Init, "[KHG] Effects: loopback mix, %d channels, HRTF %s, Galaxy zone reverb %s",
+		FxChannels, Hrtf ? "on" : "off", UseReverb ? "on" : "off (UseReverb=False)" );
+
+	FxThreadRunning = true;
+	FxThread = appThreadSpawn( FxThreadProc, (void*)this, "FxThread", true, nullptr );
+	check( FxThread );
+	return true;
+
+	unguard;
+}
+
+void UNOpenALAudioSubsystem::ShutdownFxLoopback()
+{
+	guard(UNOpenALAudioSubsystem::ShutdownFxLoopback)
+
+	if( FxThread )
+	{
+		FxThreadRunning = false;
+		appThreadJoin( FxThread );
+		FxThread = nullptr;
+	}
+	if( FxOutSource != INVALID_SOURCE )
+	{
+		MUSIC_AL_SCOPE;
+		alSourceStop( FxOutSource );
+		alSourcei( FxOutSource, AL_BUFFER, 0 );
+		alDeleteSources( 1, &FxOutSource );
+		alDeleteBuffers( ARRAY_COUNT( FxOutBuffers ), FxOutBuffers );
+		FxOutSource = INVALID_SOURCE;
+	}
+	if( FxCtx )
+	{
+		alcSetThreadContext( NULL );
+		alcMakeContextCurrent( Ctx );
+		alcDestroyContext( FxCtx );
+		FxCtx = nullptr;
+	}
+	if( FxDevice )
+	{
+		alcCloseDevice( FxDevice );
+		FxDevice = nullptr;
+	}
+	if( GalaxyReverb )
+	{
+		GalaxyReverbDestroy( GalaxyReverb );
+		GalaxyReverb = nullptr;
+	}
+
+	unguard;
+}
+
+// Galaxy's UpdateReverb: the zone of the viewport's actor, read every frame; the echo restarts
+// only when the values change.
+void UNOpenALAudioSubsystem::UpdateGalaxyReverb()
+{
+	guard(UNOpenALAudioSubsystem::UpdateGalaxyReverb)
+
+	if( !GalaxyReverb )
+		return;
+
+	FGalaxyReverbParms P;
+	AZoneInfo* Zone = Viewport->Actor ? Viewport->Actor->Region.Zone : NULL;
+	if( UseReverb && Zone && Zone->bReverbZone )
+	{
+		P.MasterGain = Zone->MasterGain;
+		P.CutoffHz = Zone->CutoffHz;
+		for( INT i = 0; i < 6; i++ )
+		{
+			P.Delay[i] = Zone->Delay[i];
+			P.Gain[i] = Zone->Gain[i];
+		}
+	}
+	if( P == GalaxyParms )
+		return;
+	GalaxyParms = P;
+
+	if( P.MasterGain )
+		debugf( NAME_Log, "[KHG] Reverb: zone %s MasterGain=%d CutoffHz=%d Delay=%d,%d,%d,%d,%d,%d Gain=%d,%d,%d,%d,%d,%d",
+			Zone->GetName(), P.MasterGain, P.CutoffHz,
+			P.Delay[0], P.Delay[1], P.Delay[2], P.Delay[3], P.Delay[4], P.Delay[5],
+			P.Gain[0], P.Gain[1], P.Gain[2], P.Gain[3], P.Gain[4], P.Gain[5] );
+	else
+		debugf( NAME_Log, "[KHG] Reverb: off" );
+
+	FScopedLock Lock( FxMutex );
+	PendingGalaxyParms = P;
+	GalaxyParmsPending = true;
+
+	unguard;
+}
+
+// Keeps the real device's effects stream filled: render the loopback mix, add the echo, queue it.
+void UNOpenALAudioSubsystem::PumpFxStream()
+{
+	guard(UNOpenALAudioSubsystem::PumpFxStream)
+
+	{
+		FScopedLock Lock( FxMutex );
+		if( GalaxyParmsPending )
+		{
+			GalaxyParmsPending = false;
+			if( !GalaxyReverbSet( GalaxyReverb, PendingGalaxyParms ) && PendingGalaxyParms.MasterGain )
+				debugf( NAME_Log, "[KHG] Reverb: Galaxy refuses these values (CutoffHz above 22050), no echo" );
+		}
+	}
+
+	MUSIC_AL_SCOPE;
+	ALint Processed = 0, Queued = 0, State = AL_STOPPED;
+	alGetSourcei( FxOutSource, AL_BUFFERS_PROCESSED, &Processed );
+	alGetSourcei( FxOutSource, AL_BUFFERS_QUEUED, &Queued );
+	alGetSourcei( FxOutSource, AL_SOURCE_STATE, &State );
+	if( Processed > 0 )
+	{
+		const INT N = Min<INT>( Processed, ARRAY_COUNT( FxOutBuffers ) - NumFreeFxOutBuffers );
+		alSourceUnqueueBuffers( FxOutSource, N, &FreeFxOutBuffers[NumFreeFxOutBuffers] );
+		NumFreeFxOutBuffers += N;
+		Queued -= N;
+	}
+
+	static short Mix[FX_FRAMES * 8];
+	while( NumFreeFxOutBuffers > 0 )
+	{
+		alcRenderSamplesSOFT( FxDevice, Mix, FX_FRAMES );
+		GalaxyReverbProcess( GalaxyReverb, Mix, FX_FRAMES, FxChannels );
+		const ALuint Buf = FreeFxOutBuffers[--NumFreeFxOutBuffers];
+		alBufferData( Buf, FxOutFormat, Mix, FX_FRAMES * FxChannels * sizeof( short ), OutputRate );
+		alSourceQueueBuffers( FxOutSource, 1, &Buf );
+		++Queued;
+	}
+
+	// Start, or restart after an underrun.
+	if( Queued > 0 && State != AL_PLAYING )
+		alSourcePlay( FxOutSource );
+
+	unguard;
+}
+
+#ifdef PLATFORM_WIN32
+DWORD __stdcall UNOpenALAudioSubsystem::FxThreadProc( void* Audio )
+#else
+void* UNOpenALAudioSubsystem::FxThreadProc( void* Audio )
+#endif
+{
+	UNOpenALAudioSubsystem* This = (UNOpenALAudioSubsystem*)Audio;
+	while( This->FxThreadRunning )
+	{
+		This->PumpFxStream();
+		appSleep( 0.001f );
+	}
+	return (THREAD_RET)0;
 }
 #endif
