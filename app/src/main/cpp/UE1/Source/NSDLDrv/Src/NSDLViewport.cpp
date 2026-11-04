@@ -1659,6 +1659,7 @@ struct FKHGWinKeyEvent { BYTE Key; BYTE Press; };
 static FKHGWinKeyEvent GKHGWinKeyEvents[256];
 static INT GKHGWinKeyEventCount = 0;
 UBOOL GKHGWindowsKeyCodes = 0;   // hook installed and in use
+INT GKHGSyntheticInput = 0;      // [KHG] -khgtiming presses keys itself (KHGTiming.cpp): leave them down
 
 // Keys that are not keyboard keys: mouse buttons, joystick buttons/axes/POV, wheel.
 // VK 0xC3-0xDA are the Windows 10 gamepad keys (VK_GAMEPAD_*), which overlap IK_Joy1..IK_Joy16.
@@ -2641,7 +2642,7 @@ void UNSDLViewport::UpdateInput( UBOOL Reset )
 	// [KHG] Retail UWindowsViewport::UpdateInput: release keys that are no longer physically down
 	// (a key-up that went to another window), and on a reset press the ones that still are, so a
 	// key held through a level change or input reset keeps working. Not while replaying a recording.
-	if( GKHGWindowsKeyCodes && Input && GKHGDemoMode != 2 )
+	if( GKHGWindowsKeyCodes && Input && GKHGDemoMode != 2 && !GKHGSyntheticInput )
 	{
 		Reset = Reset && hWnd && SDL_GetKeyboardFocus() == hWnd;
 		for( INT i=0; i<IK_MAX; i++ )

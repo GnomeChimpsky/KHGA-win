@@ -8,6 +8,7 @@
 
 #include "EnginePrivate.h"
 #include "UnNet.h"
+#include <unordered_map>   // [KHG] M8 script tick accumulators
 
 /*-----------------------------------------------------------------------------
 	Helper classes.
@@ -151,6 +152,95 @@ static void KHGApplyAimAssist( APlayerPawn* P, FLOAT DeltaSeconds )
 /*-----------------------------------------------------------------------------
 	Tick a single actor.
 -----------------------------------------------------------------------------*/
+
+/*-----------------------------------------------------------------------------
+	[KHG] M8: script Tick() that counts frames instead of time.
+
+	Some retail Klingons.u Tick() functions step a value by a fixed amount every
+	frame, or only add one frame's DeltaTime every 0.05 s, so they run faster or
+	slower with the frame rate (see docs/Timing.md). Above 60 fps the Tick() of
+	the classes below runs at 60 Hz instead, with a 1/60 s DeltaTime, which is
+	exactly what it did at 60 fps. Everything else (physics, AI states, timers,
+	animation, other Tick() functions) still runs every frame.
+	[KHGWin] FrameRateFixes: 0 = off (every Tick() every frame, as retail),
+	1 = gameplay only (HoloBox fades that lock the controls, PushActor, ParticleAttractor),
+	2 = also the visual effects listed below (default).
+-----------------------------------------------------------------------------*/
+
+ENGINE_API INT GKHGFrameRateFixes = 2;
+static const FLOAT KHGScriptTickStep = 1.f / 60.f;
+
+// The class whose code a Tick() call runs: a state's Tick belongs to the state's class.
+static const char* KHGTickOwnerClass( UFunction* F )
+{
+	for( UObject* O = F; O; O = O->GetParent() )
+		if( O->IsA( UClass::StaticClass ) )
+			return O->GetName();
+	return "";
+}
+static INT KHGFixedTickLevel( AActor* Actor )
+{
+	static std::unordered_map<UFunction*,INT> Cache;
+	UFunction* F = Actor->FindFunction( NAME_Tick );
+	if( !F )
+		return 0;
+	std::unordered_map<UFunction*,INT>::iterator Found = Cache.find( F );
+	if( Found != Cache.end() )
+		return Found->second;
+	// 1: changes gameplay. 2: looks only (spin, glow fades, particles spawned per frame).
+	static const char* const Gameplay[] = { "HoloBox", "PushActor", "ParticleAttractor" };
+	static const char* const Visual[] = { "AttackDroid", "KlingonPawn", "KlingonCarcass", "BatlethProjectile",
+		"DaktaghProjectile", "Destructable", "KlingonAmmo", "HotSteam", "WhiteSteam1", "SmokeBreath",
+		"LightningPulse", "KlingonProjectiles", "RocketProjectile" };
+	const char* Owner = KHGTickOwnerClass( F );
+	INT Level = 0;
+	for( INT i = 0; i < ARRAY_COUNT(Gameplay) && !Level; i++ )
+		if( appStricmp( Owner, Gameplay[i] )==0 )
+			Level = 1;
+	for( INT i = 0; i < ARRAY_COUNT(Visual) && !Level; i++ )
+		if( appStricmp( Owner, Visual[i] )==0 )
+			Level = 2;
+	Cache[F] = Level;
+	return Level;
+}
+static void KHGEventTick( AActor* Actor, FLOAT DeltaSeconds )
+{
+	if( GKHGFrameRateFixes <= 0 || DeltaSeconds >= KHGScriptTickStep * 0.999f )
+	{
+		Actor->eventTick( DeltaSeconds );
+		return;
+	}
+	const INT Level = KHGFixedTickLevel( Actor );
+	if( !Level || Level > GKHGFrameRateFixes )
+	{
+		Actor->eventTick( DeltaSeconds );
+		return;
+	}
+	// Time not yet ticked, per actor. Cleared on a level change and if it grows large (destroyed actors).
+	static std::unordered_map<AActor*,FLOAT> Accum;
+	static ULevel* AccumLevel = NULL;
+	if( Actor->XLevel != AccumLevel || Accum.size() > 8192 )
+	{
+		Accum.clear();
+		AccumLevel = Actor->XLevel;
+	}
+	std::unordered_map<AActor*,FLOAT>::iterator It = Accum.find( Actor );
+	if( It == Accum.end() )
+	{
+		// First tick of this actor: run now, as it would at 60 fps.
+		Accum[Actor] = 0.f;
+		Actor->eventTick( KHGScriptTickStep );
+		return;
+	}
+	It->second += DeltaSeconds;
+	if( It->second >= KHGScriptTickStep * 0.999f )
+	{
+		It->second = Max( 0.f, It->second - KHGScriptTickStep );
+		Actor->eventTick( KHGScriptTickStep );
+	}
+}
+ENGINE_API DWORD GKHGTimerEvents = 0;   // [KHG] M8: Timer() calls, counted for -khgtiming (KHGTiming.cpp)
+ENGINE_API void (*GKHGTimerHook)( AActor* Actor ) = NULL;   // [KHG] M8: -khgtiming counts Timer() calls per class
 
 UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 {
@@ -345,7 +435,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 			// Tick the nonplayer.
 			if ( IsProbing(NAME_Tick) )
-				eventTick(DeltaSeconds);
+				KHGEventTick( this, DeltaSeconds );   // [KHG] M8: 60 Hz for frame-counting script (above)
 		}
 		else
 		{
@@ -404,6 +494,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			}
 
 			// Call timer routine with count of timer events that have passed.
+			GKHGTimerEvents++;
+			if( GKHGTimerHook )
+				GKHGTimerHook( this );
 			eventTimer();
 		}
 

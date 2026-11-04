@@ -14,6 +14,7 @@
 #include <math.h>
 #ifdef PLATFORM_WIN32
 #include "KHGDesktopConfig.h"   // [KHG] first-run KHGWin.ini (desktop build)
+#include "KHGTiming.h"   // [KHG] M8 frame pacing and -khgtiming (desktop build)
 #endif
 #ifdef PLATFORM_ANDROID
 #include <android/log.h>
@@ -4682,6 +4683,12 @@ void MainLoop( UEngine* Engine )
 		GIsRunning = 0;
 		return;
 	}
+	if( ParseParam( appCmdLine(), "KHGTIMING" ) || Parse( appCmdLine(), "KHGTIMING=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
+	{
+		KHGRunTimingTest( Engine );   // [KHG] M8: -khgtiming[=dir] (KHGTiming.cpp)
+		GIsRunning = 0;
+		return;
+	}
 	if( ParseParam( appCmdLine(), "KHGMAPTEST" ) || ParseParam( appCmdLine(), "KHGSAVETEST" ) || ParseParam( appCmdLine(), "KHGLOADTEST" ) || ParseParam( appCmdLine(), "KHGLOADSAVES" )
 	 || Parse( appCmdLine(), "KHGLOADSAVE=", KhgMapArg, ARRAY_COUNT(KhgMapArg) )
 	 || Parse( appCmdLine(), "KHGMAP=", KhgMapArg, ARRAY_COUNT(KhgMapArg) ) )
@@ -4721,6 +4728,9 @@ void MainLoop( UEngine* Engine )
 	DOUBLE OldTime = appSeconds();
 #ifdef PLATFORM_WIN32
 	const UBOOL KHGDemoFast = ParseParam( appCmdLine(), "KHGFAST" );
+	// [KHG] M8: frame cap, original timing and the 1 ms floor (KHGTiming.cpp).
+	FKHGFramePacer KHGPacer;
+	KHGPacer.Init();
 #endif
 	while( GIsRunning && !GIsRequestingExit )
 	{
@@ -4756,6 +4766,8 @@ void MainLoop( UEngine* Engine )
 			}
 			continue;
 		}
+		Engine->Tick( KHGPacer.BeginFrame() );
+		continue;
 #endif
 		Engine->Tick( NewTime - OldTime );
 		OldTime = NewTime;

@@ -84,6 +84,31 @@ HorPlus on / off and WideHUD on / off also work. Gameplay is not affected: the
 game's own FOV value, zoom and mouse speed stay the same. 4:3 and narrower
 screens look the same either way.
 
+Frame rate
+----------
+Like retail, the game advances once per drawn frame, with no frame cap (vsync
+caps it at the screen's refresh rate). Two retail limits are handled for fast
+PCs:
+- The engine never advances less than 1 ms per frame, so above 1000 fps the
+  game would run ahead of real time. KHGWin waits for that 1 ms instead.
+- Some of the game's scripts count frames instead of time. The holodeck box
+  fade (M02, M20A-C) locks your controls until it ends, which takes about
+  4 s at 60 fps and much longer at high frame rates, and pushers and effects
+  run faster. Above 60 fps those scripts run at 60 Hz, as they did at 60 fps.
+The settings, in KHGWin.ini:
+
+  [KHGWin]
+  FrameRateLimit=0        ; cap in fps, 0 = none
+  OriginalTiming=False    ; True = fixed 1/60 s steps, one per frame, paced
+  OriginalTimingRate=60   ;        to real time (the game slows down if the
+                          ;        PC can't keep up)
+  FrameRateFixes=2        ; 0 = off (retail), 1 = gameplay only (holodeck
+                          ; boxes, pushers, particle attractor), 2 = also
+                          ; the visual effects
+
+docs/Timing.md in the source lists what was measured and which scripts are
+affected. builds\tools\TimingTest.bat runs the measurements.
+
 Movies
 ------
 Movies play the way the retail game plays them: on a 640x480 screen (shown 4:3

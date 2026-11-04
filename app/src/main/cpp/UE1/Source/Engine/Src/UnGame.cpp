@@ -1222,6 +1222,8 @@ void UGameEngine::SetClientTravel( UPlayer* Player, const char* NextURL, UBOOL b
 //
 // Get tick rate limitor.
 //
+ENGINE_API UBOOL GKHGNoDraw = 0;   // [KHG] M8: -khgtiming -khgnodraw ticks the game without drawing (KHGTiming.cpp)
+
 INT UGameEngine::GetMaxTickRate()
 {
 	guard(UEngine::GetMaxTickRate);
@@ -1374,7 +1376,7 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	// Render everything.
 	guard(ClientTick);
 	INT LocalClientCycles=0;
-	if( Client )
+	if( Client && !GKHGNoDraw )
 	{
 		uclock(LocalClientCycles);
 		Client->Tick();
