@@ -9,7 +9,7 @@ rem Don't touch the mouse or keyboard while it runs: the test presses keys itsel
 rem an hour per map and build. The ticks aren't paced to real time, so any PC can run the 1000 Hz pass.
 rem Copies only the KHGWin files (KHGWin*, OpenAL32.dll, FFmpeg DLLs) into Installed\System; no retail file is touched.
 set BUILD=%~1
-if "%BUILD%"=="" set BUILD=6fa906a
+if "%BUILD%"=="" set BUILD=b03f445
 set MAPS=%~2
 if "%MAPS%"=="" set MAPS=M02.unr,M04A.unr,M08.unr,M12.unr
 set TOOLS=%~dp0
