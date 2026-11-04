@@ -1264,6 +1264,29 @@ static void KHGApplyFov( UClient* Client )
 				D->DesiredFOV = GKHGFov;
 			debugf( NAME_Log, "[KHG] FOV: %s default %.0f -> %.0f", C->GetName(), Original[k], GKHGFov );
 		}
+		// Menus are laid out for the retail FOV: the character select (KlingonMenuPlayer/Mesh) puts the model and
+		// its backdrop at fixed offsets in front of the eye, so a wider view shows the level beside them. Use the
+		// original FOV while a menu is up and go back to the chosen one when it closes.
+		static UBOOL InMenu[16];
+		UBOOL& Menu = InMenu[v < ARRAY_COUNT(InMenu) ? v : 0];
+		if( P->bShowMenu )
+		{
+			if( !Menu || P->DesiredFOV==GKHGFov )
+			{
+				if( P->DesiredFOV==GKHGFov )
+					P->DesiredFOV = Original[k];
+				if( P->FovAngle==GKHGFov )
+					P->FovAngle = Original[k];
+			}
+			Menu = 1;
+			continue;
+		}
+		if( Menu )
+		{
+			Menu = 0;
+			if( P->FovAngle==Original[k] )
+				P->FovAngle = GKHGFov;
+		}
 		if( P->DesiredFOV==Original[k] && Original[k]!=GKHGFov )
 		{
 			P->DesiredFOV = GKHGFov;
