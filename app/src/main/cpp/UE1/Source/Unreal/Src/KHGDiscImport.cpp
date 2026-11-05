@@ -196,6 +196,7 @@ struct FSource
 	std::vector<FMovie> Movies;   // the AVI folder (disc 2)
 	FMovie Intro;                 // root INTRO.AVI (disc 1)
 	FMovie Cab;                   // root DATA1.CAB, the installer's data (disc 1)
+	FMovie Art;                   // AUTOPLAY\AUTOBACKDROP.BMP, the autorun menu's backdrop (disc 1)
 	std::vector<FTrack> Tracks;   // audio tracks (disc 2 only)
 
 	bool IsDisc2() const
@@ -307,6 +308,18 @@ void ReadImageData( FSource& S )
 			S.Intro.Name = "INTRO.AVI";
 			S.Intro.Size = E.Size;
 			S.Intro.Lba = E.Lba;
+		}
+		if( E.Dir && Lower( E.Name ) == "autoplay" )
+		{
+			std::vector<FIsoReader::FEntry> Auto;
+			R.List( E.Lba, E.Size, Auto );
+			for( const auto& A : Auto )
+				if( !A.Dir && Lower( A.Name ) == "autobackdrop.bmp" )
+				{
+					S.Art.Name = "autobackdrop.bmp";
+					S.Art.Size = A.Size;
+					S.Art.Lba = A.Lba;
+				}
 		}
 		if( E.Dir && Lower( E.Name ) == "avi" )
 		{
@@ -547,6 +560,12 @@ std::vector<FSource> ScanDrives( bool WithTracks )
 			S.Cab.Name = "DATA1.CAB";
 			S.Cab.Path = std::string( Root ) + "DATA1.CAB";
 			S.Cab.Size = FileSize( S.Cab.Path );
+		}
+		if( FileExists( std::string( Root ) + "AUTOPLAY\\AUTOBACKDROP.BMP" ) )
+		{
+			S.Art.Name = "autobackdrop.bmp";
+			S.Art.Path = std::string( Root ) + "AUTOPLAY\\AUTOBACKDROP.BMP";
+			S.Art.Size = FileSize( S.Art.Path );
 		}
 		if( !S.Useful() && S.Cab.Name.empty() )
 			continue;
@@ -1475,7 +1494,7 @@ std::string RunInstall( FJob& J, const FSource& Src, const std::string& InTarget
 		return "the installer data on " + Src.Label + " has no Klingons.u; it is not Klingon Honor Guard disc 1";
 	}
 	EnterCriticalSection( &J.Lock );
-	J.Plan.Bytes = J.Done + Bytes + ( Src.Intro.Name.empty() ? 0 : Src.Intro.Size );
+	J.Plan.Bytes = J.Done + Bytes + ( Src.Intro.Name.empty() ? 0 : Src.Intro.Size ) + ( Src.Art.Name.empty() ? 0 : Src.Art.Size );
 	LeaveCriticalSection( &J.Lock );
 	for( const char* Sub : { "System", "Maps", "Textures", "Sounds", "Save" } )
 		CreateDirectoryA( ( Target + Sub ).c_str(), NULL );
@@ -1508,6 +1527,11 @@ std::string RunInstall( FJob& J, const FSource& Src, const std::string& InTarget
 			if( E.empty() ) J.Add( "copied INTRO.AVI to " + Target + "System\\" );
 			else if( E != "cancelled" ) J.Add( "FAILED INTRO.AVI: " + E );
 		}
+		// [KHG] The launcher's picture: version 1.0 has no MicroProse splash in its exe (patch 1.1 adds it),
+		// so the autorun menu's backdrop stands in (KHGLauncher.cpp). Not needed by the game.
+		if( !Src.Art.Name.empty() && !J.Cancel
+		 && CopyMovie( J, Src, Src.Art, Target + "System\\KHGLauncher.bmp" ).empty() )
+			J.Add( "copied the disc's autorun backdrop to " + Target + "System\\KHGLauncher.bmp (launcher picture)" );
 	}
 	return J.Cancel ? "cancelled" : Err;
 }

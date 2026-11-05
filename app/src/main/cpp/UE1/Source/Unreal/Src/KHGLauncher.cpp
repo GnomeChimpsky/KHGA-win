@@ -1312,7 +1312,48 @@ bool LoadSplash( const std::string& BaseDir, unsigned char** Out, int* W, int* H
 	for( const char* N : Names )
 		if( KHGLoadPEBitmapBGRA( ( BaseDir + N ).c_str(), KHG_SPLASH_RESOURCE_ID, Out, W, H ) )
 			return true;
-	return false;
+	// Version 1.0's Klingons.exe has no splash (patch 1.1 added it): use disc 1's autorun backdrop, which
+	// the disc 1 install copies to System\KHGLauncher.bmp (KHGDiscImport.cpp). It is 4:3; the image area
+	// is a little wider, so rows are cut from the bottom (the lava) to keep the logo whole.
+	HBITMAP Bmp = (HBITMAP)LoadImageA( NULL, ( BaseDir + "KHGLauncher.bmp" ).c_str(), IMAGE_BITMAP, 0, 0,
+		LR_LOADFROMFILE | LR_CREATEDIBSECTION );
+	if( !Bmp )
+		return false;
+	BITMAP BM;
+	GetObjectA( Bmp, sizeof(BM), &BM );
+	const int SW = BM.bmWidth, SH = abs( BM.bmHeight );
+	std::vector<unsigned char> All( (size_t)SW * SH * 4 );
+	BITMAPINFO BI;
+	memset( &BI, 0, sizeof(BI) );
+	BI.bmiHeader.biSize = sizeof(BI.bmiHeader);
+	BI.bmiHeader.biWidth = SW;
+	BI.bmiHeader.biHeight = -SH;   // top-down
+	BI.bmiHeader.biPlanes = 1;
+	BI.bmiHeader.biBitCount = 32;
+	BI.bmiHeader.biCompression = BI_RGB;
+	HDC DC = GetDC( NULL );
+	const int Rows = SW > 0 && SH > 0 ? GetDIBits( DC, Bmp, 0, SH, All.data(), &BI, DIB_RGB_COLORS ) : 0;
+	ReleaseDC( NULL, DC );
+	DeleteObject( Bmp );
+	if( Rows != SH )
+		return false;
+	// Crop to the image area's aspect (ImageW x ImageH = 512 x 372).
+	int CW = SW, CH = SH, X0 = 0;
+	if( SW * 372 < SH * 512 )
+		CH = SW * 372 / 512;               // taller: cut from the bottom
+	else
+		CW = SH * 512 / 372, X0 = ( SW - CW ) / 2;   // wider: cut both sides
+	unsigned char* P = (unsigned char*)malloc( (size_t)CW * CH * 4 );
+	if( !P )
+		return false;
+	for( int Y = 0; Y < CH; ++Y )
+		memcpy( P + (size_t)Y * CW * 4, All.data() + ( (size_t)Y * SW + X0 ) * 4, (size_t)CW * 4 );
+	for( int i = 0; i < CW * CH; ++i )
+		P[i * 4 + 3] = 255;
+	*Out = P;
+	*W = CW;
+	*H = CH;
+	return true;
 }
 
 } // namespace

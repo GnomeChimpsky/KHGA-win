@@ -23,7 +23,9 @@ If it finds no installed game, it opens "Install Klingon Honor Guard":
   click "Disc image..." and choose a .cue/.bin or .iso image of disc 1, pick
   a folder (C:\Games\Klingon Honor Guard by default) and click Install. It
   unpacks the game files from the disc's DATA1.CAB the way the installer
-  does (about 300 MB, version 1.0) and copies the intro movie, then goes on
+  does (about 300 MB, version 1.0) and copies the intro movie and the disc's
+  autorun picture (System\KHGLauncher.bmp, shown by the launcher because
+  version 1.0 has no MicroProse splash; patch 1.1 adds it), then goes on
   to the movies and music on disc 2 (below). Nothing is written to the
   registry or to Windows. KHGWin.exe can stay where it is, or go into the new
   System folder.
