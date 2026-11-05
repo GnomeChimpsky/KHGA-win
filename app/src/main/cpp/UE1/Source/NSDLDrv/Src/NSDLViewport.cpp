@@ -4489,6 +4489,10 @@ UBOOL UNSDLViewport::Exec( const char* Cmd, FOutputDevice* Out )
 				}
 				debugf( NAME_Log, "[KHG] PlayAVI: %s", Cmd );
 				struct FLoop { static void Run( void* Ctx ) { UNSDLViewport* V = (UNSDLViewport*)Ctx; UEngine* E = V->Client ? V->Client->Engine : NULL; while( UE1FMVAdvance() ) { if( E ) E->Draw( V, NULL, NULL ); SDL_Delay( 2 ); } } };
+				// [KHG] Movies copied from the game CD when the install can't be written to (KHGDiscImport.cpp).
+				char UserMovies[512];
+				appSprintf( UserMovies, "%sMovies\\", appUserDir() );
+				UE1FMVSetAltBase( UserMovies );
 				UE1FMVPlayAVIRetail( Base ? Base : "", FilePtrs, Flags, hWnd, &FLoop::Run, this );
 			}
 #else

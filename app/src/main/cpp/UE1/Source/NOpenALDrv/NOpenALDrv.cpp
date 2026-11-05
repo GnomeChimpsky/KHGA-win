@@ -1332,7 +1332,16 @@ void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
 	else
 		appSprintf( Dir, "%s%s", Base ? Base : "", CDMusicPath );
 
-	const std::string File = CDMusicFindTrack( Dir, Track );
+	std::string File = CDMusicFindTrack( Dir, Track );
+#ifdef PLATFORM_WIN32
+	if( File.empty() )
+	{
+		// [KHG] Tracks copied from the game CD when the install can't be written to (KHGDiscImport.cpp).
+		char UserMusic[512];
+		appSprintf( UserMusic, "%sMusic", appUserDir() );
+		File = CDMusicFindTrack( UserMusic, Track );
+	}
+#endif
 	if( File.empty() )
 	{
 		debugf( NAME_Log, "[KHG] CD track %i: no file for it in %s (as without the game CD)", Track, Dir );

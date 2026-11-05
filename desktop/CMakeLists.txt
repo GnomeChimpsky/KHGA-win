@@ -119,8 +119,10 @@ target_link_libraries(NOpenALDrv ff_avformat ff_avcodec ff_avutil ff_swresample)
 target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # M8: frame pacing and the -khgtiming test mode.
 target_sources(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/KHGTiming.cpp")
+# Movies and CD music copied from the game CD (KHGDiscImport.cpp).
+target_sources(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/KHGDiscImport.cpp")
 # The launcher defines its own WinMain (SDLLaunch.cpp), so SDL2main is not linked.
-target_link_libraries(Unreal xmp_static shell32 ole32 uuid)   # shell32/ole32/uuid: Saved Games folder, game folder dialog (KHGDesktopConfig.cpp)
+target_link_libraries(Unreal xmp_static shell32 ole32 uuid comdlg32)   # shell32/ole32/uuid: Saved Games folder, game folder dialog (KHGDesktopConfig.cpp)
 
 # M9: build version, from the git tag (vX.Y.Z) or -DKHG_VERSION=...; shown in the log, crash reports and
 # the exe's version info.

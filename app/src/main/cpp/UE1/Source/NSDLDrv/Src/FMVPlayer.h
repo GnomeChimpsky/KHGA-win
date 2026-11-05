@@ -58,6 +58,8 @@ void UE1FMVSetBlitMode( int Mode );
 // called once per opened clip and must run while( UE1FMVAdvance() ) { draw a frame }.
 void UE1FMVPlayAVIRetail( const char* Base, const char* const Files[5], const char Flags[5],
                           struct SDL_Window* Window, void (*PlayLoop)( void* Ctx ), void* Ctx );
+// A second movie folder, tried when a clip is not in Base ("" = none).
+void UE1FMVSetAltBase( const char* Dir );
 
 // Stop and release the active clip.
 void UE1FMVClose( void );

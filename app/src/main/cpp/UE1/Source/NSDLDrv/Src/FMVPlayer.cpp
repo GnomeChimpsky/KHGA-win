@@ -783,6 +783,13 @@ extern "C" void UE1FMVReleaseOverlay( void )
 // Brief03a.avi without a skip; every clip whose flag is not C is followed by breakdn.avi while the
 // frame is up (retail never resets that flag afterwards), then the screen is cleared. Names are
 // compared case-sensitively, as retail does.
+// [KHG] Second folder to look in when a clip is not in Base (the user folder's Movies, see KHGDiscImport.cpp).
+static char GFMVAltBase[1024] = "";
+extern "C" void UE1FMVSetAltBase( const char* Dir )
+{
+	SDL_strlcpy( GFMVAltBase, Dir ? Dir : "", sizeof(GFMVAltBase) );
+}
+
 extern "C" void UE1FMVPlayAVIRetail( const char* Base, const char* const Files[5], const char Flags[5],
                                      SDL_Window* Window, void (*PlayLoop)( void* Ctx ), void* Ctx )
 {
@@ -790,6 +797,22 @@ extern "C" void UE1FMVPlayAVIRetail( const char* Base, const char* const Files[5
 	auto PlayClip = [&]( const char* Name, int Mode )
 	{
 		SDL_snprintf( Path, sizeof(Path), "%s%s", Base ? Base : "", Name );
+		if( GFMVAltBase[0] )
+		{
+			SDL_RWops* F = SDL_RWFromFile( Path, "rb" );
+			if( F )
+				SDL_RWclose( F );
+			else
+			{
+				char Alt[1024];
+				SDL_snprintf( Alt, sizeof(Alt), "%s%s", GFMVAltBase, Name );
+				if( ( F = SDL_RWFromFile( Alt, "rb" ) ) != NULL )
+				{
+					SDL_RWclose( F );
+					SDL_strlcpy( Path, Alt, sizeof(Path) );
+				}
+			}
+		}
 		UE1FMVSetBlitMode( Mode );
 		if( UE1FMVOpen( Path, Window ) ) { PlayLoop( Ctx ); UE1FMVClose(); }
 		else FMV_ERR( "PlayAVI: cannot play %s", Path );

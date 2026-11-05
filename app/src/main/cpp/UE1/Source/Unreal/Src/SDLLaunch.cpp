@@ -10,6 +10,9 @@
 
 #include "Engine.h"
 #include "KHGSplash.h"   // [KHG] retail splash read from the user's Khg.exe
+#ifdef PLATFORM_WIN32
+#include "KHGDiscImport.h"   // [KHG] movies and CD music from the game CD
+#endif
 #include "UnRender.h"   // [KHG] URenderDevice::ReadPixels for -khgshots
 #include <math.h>
 #ifdef PLATFORM_WIN32
@@ -3944,6 +3947,13 @@ UBOOL KHGDemoOpen( const char* RecordFile, const char* ReplayFile );
 void KHGDemoClose();
 #endif
 
+#ifdef PLATFORM_WIN32
+void KHGDiscImportLogLine( const char* Line )
+{
+	debugf( NAME_Init, "[KHG] Game CD: %s", Line );
+}
+#endif
+
 UEngine* InitEngine()
 {
 	guard(InitEngine);
@@ -3953,6 +3963,7 @@ UEngine* InitEngine()
 #ifdef PLATFORM_WIN32
 	debugf( NAME_Init, "[KHG] KHGWin %s (%s)", KHGBuildVersion(), sizeof(void*) == 8 ? "64-bit" : "32-bit" );
 	KHGDesktopLogConfigStatus();   // [KHG] report how KHGWin.ini was set up (KHGDesktopConfig.cpp)
+	KHGDiscImportLogStatus();      // [KHG] what was copied from the game CD (KHGDiscImport.cpp)
 	KHGDesktopApplyUserPaths();    // [KHG] saves in the user folder unless the ini names its own Save folder
 	{
 		// [KHG] -khgrecord=<file> / -khgreplay=<file>: input record and replay (NSDLViewport.cpp). Seed rand()
@@ -4896,6 +4907,13 @@ int main( int argc, const char** argv )
 	{
 		// [KHG] Launcher: settings the game's menus can't change, before appInit() reads KHGWin.ini (KHGLauncher.cpp).
 		const std::string KHGIni = std::string( appUserDir() ) + appPackage() + ".ini";
+		// [KHG] Movies and CD music from the game CD (KHGDiscImport.cpp): -khgdiscimport=<source> copies and exits;
+		// otherwise offered once at startup when the install lacks them.
+		int DiscExit = 0;
+		if( KHGDiscImportCommandLine( appCmdLine(), appBaseDir(), appUserDir(), KHGIni.c_str(), &DiscExit ) )
+			TerminateProcess( GetCurrentProcess(), DiscExit );
+		if( !GIsEditor && GIsClient && KHGDiscPromptWanted( appCmdLine(), appBaseDir(), appUserDir(), KHGIni.c_str() ) )
+			KHGRunDiscImport( NULL, appBaseDir(), appUserDir(), KHGIni.c_str(), true );
 		if( !GIsEditor && GIsClient && KHGLauncherWanted( appCmdLine(), KHGIni.c_str() )
 		 && !KHGRunLauncher( appBaseDir(), appUserDir(), KHGIni.c_str() ) )
 		{

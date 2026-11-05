@@ -23,6 +23,33 @@ in it replaces a retail file. Installs under Program Files work either way.
 
 Requirements: Windows 10 or 11 and a GPU with a Vulkan driver.
 
+Which version of the game: the retail CD, version 1.0 or patched to 1.1, and
+installs prepared by others (such as the Collection Chamber release). Patch
+1.1 is not needed; install it for mods made for 1.1 (KHG Restored) and the
+MicroProse splash. No Indeo codec, no-CD exe, dgVoodoo or edited Khg.ini is
+needed either.
+
+Movies and music from the game CD
+---------------------------------
+The retail game plays its movies and its music from game disc 2, and its
+installer copies neither. The first time KHGWin starts on an install without
+them, it offers to copy them into the game folder once:
+
+- the movies: disc 2's AVI folder goes into System (about 450 MB);
+- the music: the CD audio tracks are read from the disc and saved as
+  Music\Track02.wav and so on (about 320 MB; reading a disc takes a few
+  minutes, depending on the drive).
+
+Insert disc 2 (or mount its image) and click Copy, or click "Disc image..." to
+use a .cue/.bin image (movies and music) or an .iso (movies only). Skip starts
+the game without them, as the retail game runs without its disc; "Don't ask
+again at startup" stops the question. The launcher's "Game CD..." button opens
+the same window at any time. If the game folder can't be written to (Program
+Files), the files go to Movies\ and Music\ in your Saved Games folder instead,
+where KHGWin finds them too. KHGWin.log lists what was copied ("[KHG] Game
+CD:"). Installs that already have the movies in System and the music (ripped
+tracks, or the fan music pack) are not asked.
+
 If it crashes
 -------------
 KHGWin saves a crash report in the Crashes folder next to your settings
@@ -72,7 +99,8 @@ KHGWin keeps everything it writes in your Saved Games folder:
     Save\        saved games (Save0.usa ... Save8.usa, like the retail game)
     Shot0000.bmp screenshots (F9 / "shot")
 
-so the install folder is never written to (it can stay in Program Files).
+so the install folder is never written to (it can stay in Program Files),
+except when you copy the movies and music from the game CD into it.
 
 The first time it starts, KHGWin sets this folder up from your install:
 - KHGWin.ini is copied from the System folder if an older KHGWin made one
@@ -187,18 +215,19 @@ the game sound. KHGWin.log has one "[KHG] FMV:" line per movie.
 
 Music from the game CD
 ----------------------
-Ten levels have music events that start a track from the game CD, which the
-retail game plays when UseCDMusic is on (track 2 in M07B, M12, M13, M15, M18C
-and M19, track 3 in M06B, 4 in M20A, 6 in M07A, 11 in M09A).
-KHGWin plays these from ripped audio files instead of the disc. Put them in
-the Music folder of your install (next to System), named by track number:
+The retail game's music is CD audio on game disc 2 (tracks 2 to 8): every
+mission and the main menu start a track, and some levels change it with a
+music event. The retail game plays them when UseCDMusic is on.
+KHGWin plays these from ripped audio files instead of the disc ("Movies and
+music from the game CD" above makes them). They live in the Music folder of
+your install (next to System), named by track number:
 
   Music\Track02.ogg   Music\Track03.flac   Music\Track11.mp3   ...
 
 .ogg, .flac, .mp3, .wav and .opus work; "Track 02", "02" or "02 - Title"
 are also found. Like the CD, a track plays once from its start and is not
-repeated, at the in-game music volume. Without the files those levels sound
-as the retail game does without the CD. KHGWin.log says which file it plays
+repeated, at the in-game music volume. Without the files the game has no
+music, as the retail game has none without the CD. KHGWin.log says which file it plays
 ("[KHG] CD track"). Settings in KHGWin.ini:
 
   [NOpenALDrv.NOpenALAudioSubsystem]

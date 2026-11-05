@@ -31,6 +31,7 @@
 #include "KHGLauncher.h"
 #include "KHGSplash.h"
 #include "KHGDesktopConfig.h"
+#include "KHGDiscImport.h"
 
 namespace
 {
@@ -446,7 +447,7 @@ struct FItem
 
 enum
 {
-	ID_TAB = 100, ID_PLAY = IDOK, ID_QUIT = IDCANCEL, ID_SHOWATSTART = 110, ID_SAVES = 111, ID_LOG = 112, ID_RESET = 113,
+	ID_TAB = 100, ID_PLAY = IDOK, ID_QUIT = IDCANCEL, ID_SHOWATSTART = 110, ID_SAVES = 111, ID_LOG = 112, ID_RESET = 113, ID_DISC = 114,
 	ID_ITEM = 1000, ID_BROWSE = 2000,
 };
 
@@ -868,7 +869,7 @@ struct FLauncher
 			"Plays the game's own music files (.umx in the Music folder), like the retail \"digital music\" setting. "
 			"Taken from your Khg.ini on first run." );
 		AddCheck( PG_Audio, SecAudio, "UseCDMusic", true, "Music from ripped CD tracks",
-			"Plays the game CD's music from the music folder (Track02.ogg and so on) in the ten levels that use it, "
+			"Plays the game CD's music from the music folder (Track02.wav and so on; \"Game CD...\" copies them from disc 2), "
 			"like the retail CD music setting. Taken from your Khg.ini on first run. See KHGWin-README.txt." );
 		AddEdit( PG_Audio, SecAudio, "CDMusicPath", "..\\Music", "CD music folder",
 			"Folder with the ripped CD tracks. A relative path starts from the System folder; ..\\Music is the Music folder of the install." );
@@ -1099,6 +1100,9 @@ struct FLauncher
 			"Opens KHGWin.log from the last time the game ran, for reporting problems." );
 		Button( "Reset settings", ID_RESET, S( 390 ), BY, S( 106 ), BS_PUSHBUTTON,
 			"Puts every setting back to the defaults (asks first). Saved games are kept." );
+		Button( "Game CD...", ID_DISC, S( 502 ), BY, S( 96 ), BS_PUSHBUTTON,
+			"Copies the movies and the music from game disc 2 (or its image) into your game folder, "
+			"for installs that don't have them yet. The retail game plays both from the disc." );
 		const int Right = S( ImageW + PanelW );
 		HWND PlayBtn = Button( "Play", ID_PLAY, Right - S( 196 ), BY, S( 96 ), BS_DEFPUSHBUTTON,
 			"Saves these settings to KHGWin.ini and starts the game." );
@@ -1215,6 +1219,9 @@ struct FLauncher
 				return 0;
 			case ID_RESET:
 				ResetSettings();
+				return 0;
+			case ID_DISC:
+				KHGRunDiscImport( Wnd, BaseDir.c_str(), UserDir.c_str(), IniPath.c_str(), false );
 				return 0;
 			}
 			break;

@@ -35,6 +35,13 @@ Fullscreen clips (the intro, ship cinematics, briefings on the plain path) are l
 their native aspect and centered. The intro movie and the MicroProse launcher splash are played
 once at startup, before the menu, and are skippable (and no-op if the files are absent).
 
+## Where the movies come from (desktop)
+
+Retail streams the movies from disc 2 (`CdPath`, e.g. `e:\AVI\`, in the ini; WinDrv.dll tries
+`%sAVI\` on the CD drive) and the installer copies none of them. KHGWin plays them from System,
+then from `<user folder>Movies\`; `KHGDiscImport.cpp` copies them there from the disc or an image
+(see docs/Audio.md, "Music from the game CD").
+
 ## Windows desktop build: the retail sequence (M4)
 
 On the desktop build the `playavi` handler reproduces the retail PC game exactly. The retail

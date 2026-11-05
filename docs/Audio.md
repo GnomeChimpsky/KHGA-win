@@ -50,3 +50,17 @@ KHGWin.ini (`[KHGWin] AudioDefaults=1`).
 - `UseHRTF` in the real context is passed with the wrong attribute name (`ALC_SOFT_HRTF`), so
   OpenAL Soft decides HRTF on its own (on for headphones).
 - Default volumes (Music 63, Sound 127) are not taken from Khg.ini.
+
+## Music from the game CD
+
+Plain retail maps import no music packages: every mission's LevelInfo (and the menu, klingon.unr)
+sets a CdTrack, and some MusicEvents change it, so the retail music is CD audio from disc 2
+(tracks 2 to 8). Installs with the fan music pack have maps re-saved with `Song=trackN` modules
+instead. `KHGDiscImport.cpp` rips the audio tracks of disc 2 (a drive through
+`IOCTL_CDROM_RAW_READ`, or a .cue/.bin image) to `<CDMusicPath>\TrackNN.wav`, and copies its AVI
+folder into System; when the install can't be written to, both go to the user folder
+(`Music\`, `Movies\`), where NOpenALDrv and the FMV player look as well. Offered at startup when
+`Brief0102.avi` or a file for track 2 is missing (`[KHGWin] DiscPrompt=False` turns it off), and
+from the launcher's "Game CD..." button. `-khgdiscimport=<drive|.cue|.iso|auto>` copies without a
+window and writes `KHGDiscImport.log` to the user folder.
+
