@@ -1136,7 +1136,21 @@ void FObjectManager::GlobalSetProperty( const char* Value, UClass* Class, UPrope
 
 	// Apply to defaults.
 	Property->ImportText( Value, &Class->Defaults(Offset), 1 );
-	Class->GetDefaultObject()->SaveConfig();
+	// [KHG] Save the config from a live object of the class when there is one. A native class's defaults
+	// (e.g. NOpenALAudioSubsystem) only hold what the ini had when it was loaded, not its constructor's
+	// values, so saving them wrote 0 / "" for every key the ini lacked (the in-game Audio/Video menu's
+	// "set ini:Engine.Engine.AudioDevice ..." blanked CDMusicPath, DopplerFactor, ...).
+	UObject* Live = NULL;
+	for( FObjectIterator It(Class); It && !Live; ++It )
+		if( *It != Class->GetDefaultObject() && It->GetClass() == Class )
+			Live = *It;
+	if( Live )
+	{
+		Property->ImportText( Value, (BYTE*)Live + Offset, 1 );
+		Live->SaveConfig();
+	}
+	else
+		Class->GetDefaultObject()->SaveConfig();
 
 	unguard;
 }
@@ -1501,7 +1515,15 @@ UBOOL FObjectManager::Exec( const char* Cmd, FOutputDevice* Out )
 			&&	(Property=FindField<UProperty>( Class, PropertyName))!=NULL )
 			{
 				char Temp[256]="";
-				if( Class->Defaults.Num() )
+				// [KHG] A live object's value when there is one (see GlobalSetProperty): the defaults of a native
+				// class lack its constructor's values (the Audio/Video menu read SoundVolume 0).
+				UObject* Live = NULL;
+				for( FObjectIterator It(Class); It && !Live; ++It )
+					if( *It != Class->GetDefaultObject() && It->GetClass() == Class )
+						Live = *It;
+				if( Live )
+					Property->ExportText( 0, Temp, (BYTE*)Live, (BYTE*)Live, 1 );
+				else if( Class->Defaults.Num() )
 					Property->ExportText( 0, Temp, &Class->Defaults(0), &Class->Defaults(0), 1 );
 				Out->Log( Temp );
 			}

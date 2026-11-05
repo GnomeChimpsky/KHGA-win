@@ -434,8 +434,21 @@ UBOOL UNSDLClient::Exec( const char* Cmd, FOutputDevice* Out )
 		GetDisplayResolutions();
 		// [KHG] KlingonMenuVideo keeps the list in a 16-entry array (retail drivers reported fewer
 		// modes); modern displays report more, which overflowed it. List only the 16 largest.
+		// The menu's Exit sets the resolution it shows, and shows the first entry when the current one isn't
+		// listed, so the current resolution (e.g. one picked in the launcher) takes the smallest slot.
 		const INT MaxMenuResolutions = 16;
-		for( INT i=Max(0, DisplayResolutions.Num()-MaxMenuResolutions); i<DisplayResolutions.Num(); ++i )
+		const INT First = Max(0, DisplayResolutions.Num()-MaxMenuResolutions);
+		INT CurX = ViewportX, CurY = ViewportY;
+		if( Viewports.Num() && Viewports(0) )
+			CurX = Viewports(0)->SizeX, CurY = Viewports(0)->SizeY;
+		UBOOL Listed = 0;
+		for( INT i=First; i<DisplayResolutions.Num(); ++i )
+			Listed |= DisplayResolutions(i).w == CurX && DisplayResolutions(i).h == CurY;
+		const UBOOL AddCur = !Listed && CurX > 0 && CurY > 0;
+		const UBOOL Full = DisplayResolutions.Num() - First >= MaxMenuResolutions;
+		if( AddCur )
+			Result.Appendf( "%ix%i ", CurX, CurY );
+		for( INT i=First + ( AddCur && Full ? 1 : 0 ); i<DisplayResolutions.Num(); ++i )
 		{
 			const SDL_Rect& Mode = DisplayResolutions(i);
 			Result.Appendf( "%ix%i ", Mode.w, Mode.h );

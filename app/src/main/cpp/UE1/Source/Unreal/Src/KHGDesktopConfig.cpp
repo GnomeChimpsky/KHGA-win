@@ -780,6 +780,41 @@ static std::string ApplyAudioDefaults( std::string Ini, const std::string& Dir )
 	return KHGMergeIni( Ini, Overlay );
 }
 
+// [KHG] Repairs the audio section written by the old "set ini:" bug: the in-game Audio/Video menu saved
+// NOpenALAudioSubsystem's class defaults, which had 0 / "" for every key the ini lacked (OutputRate=0 is
+// never written otherwise). Those keys are removed so the driver's defaults apply again. Returns the keys.
+static std::string RepairBlankAudio( std::string& Ini )
+{
+	if( IniValue( Ini, "NOpenALDrv.NOpenALAudioSubsystem", "OutputRate" ) != "0" )
+		return std::string();
+	static const struct { const char* Key; const char* Blank; } Keys[] = {
+		{ "OutputRate", "0" }, { "CDMusicPath", "" }, { "MusicInterpolation", "0" },
+		{ "DopplerFactor", "0.000000" }, { "AmbientFactor", "0.000000" }, { "DeviceName", "" } };
+	std::vector<FIniSection> Sections = Parse( Ini );
+	std::string Removed;
+	for( FIniSection& S : Sections )
+		if( SameName( S.Name, "NOpenALDrv.NOpenALAudioSubsystem" ) )
+			for( size_t i = 0; i < S.Lines.size(); )
+			{
+				bool Drop = false;
+				const size_t Eq = S.Lines[i].Text.find( '=' );
+				for( const auto& K : Keys )
+					if( Eq != std::string::npos && SameName( KeyOf( S.Lines[i].Text ), K.Key )
+					 && Trim( S.Lines[i].Text.substr( Eq + 1 ) ) == K.Blank )
+						Drop = true;
+				if( Drop )
+				{
+					Removed += ( Removed.empty() ? "" : ", " ) + KeyOf( S.Lines[i].Text );
+					S.Lines.erase( S.Lines.begin() + i );
+				}
+				else
+					++i;
+			}
+	if( !Removed.empty() )
+		Ini = Write( Sections );
+	return Removed;
+}
+
 // Copies every *.usa in From to To that To doesn't have yet. Returns how many were copied.
 static int CopySaves( const std::string& From, const std::string& To )
 {
@@ -1133,6 +1168,12 @@ static void PrepareConfig( const char* BaseDir, const char* Package )
 			}
 		}
 		GConfigStatus = "using existing " + Target;
+		{
+			const std::string Removed = RepairBlankAudio( Existing );
+			if( !Removed.empty() && WriteText( Target, Existing ) )
+				GMigrationLog.push_back( "repaired the audio settings blanked by the in-game Audio/Video menu (back to defaults: " + Removed + ")" );
+			ReadText( Target, Existing );
+		}
 		if( AudioDefaultsIn( Existing ) < kAudioDefaultsVersion )
 		{
 			if( WriteText( Target, ApplyAudioDefaults( Existing, Dir ) ) )
