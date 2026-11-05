@@ -25,6 +25,8 @@ Unreal® and the Unreal Engine are trademarks of Epic Games, Inc.
 | libxmp | bundled | Tracker/module music decoding (UMX) | see bundled `libxmp` license |
 | FFmpeg | LGPL build | Cutscene (FMV/AVI) video + audio decoding | LGPL-2.1-or-later |
 | ZVulkan / volk / VMA / glslang | bundled | Vulkan loader, memory allocation, shader compiler (renderer) | zlib / MIT / BSD-3 (`UE1/Source/ZVulkan/LICENSE.md`) |
+| unshield | 1.6.2 | Unpacks the retail installer's DATA1.CAB (install from disc 1, Windows build) | MIT; its MD5 code is the RSA Data Security, Inc. MD5 Message-Digest Algorithm (notice in `lib/md5/md5c.c`) |
+| zlib (inflate only) | 1.3.1 | Decompression for unshield (Windows build) | zlib |
 | glad_es | bundled | GL ES loader (legacy GLES path) | MIT / public-domain generator |
 
 Refer to each component's upstream project and the license headers in its
@@ -49,7 +51,7 @@ WAV) for the game's CD music; only LGPL decoders are enabled.
 ## Windows release (KHGWin)
 
 A KHGWin release zip carries these notices in `KHGWin-Licenses/`: SDL2, OpenAL Soft, FFmpeg
-(LGPL text and our patch), libxmp, ZVulkan/volk/VMA/glslang, the MinGW-w64 runtime, this file, and
+(LGPL text and our patch), libxmp, ZVulkan/volk/VMA/glslang, unshield (with the RSA MD5 notice), zlib, the MinGW-w64 runtime, this file, and
 `LGPL-NOTICE.txt` (`desktop/licenses/`), which says which DLLs are LGPL and where their source is.
 `desktop/scripts/package-lgpl-sources.sh` builds `KHGWin-<ver>-lgpl-sources.zip` with the exact
 FFmpeg and OpenAL Soft sources of a release; CI publishes it next to the release zips.

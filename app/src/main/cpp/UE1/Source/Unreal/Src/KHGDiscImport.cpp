@@ -16,6 +16,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <shlobj.h>
 #include <winioctl.h>
 #include <ntddcdrm.h>
 
@@ -27,6 +28,10 @@
 #include <vector>
 
 #include "KHGDiscImport.h"
+
+extern "C" {
+#include "libunshield.h"   // thirdparty/unshield: the installer's InstallShield 5 cabinet
+}
 
 namespace
 {
@@ -190,6 +195,7 @@ struct FSource
 	std::string Error;     // why an image couldn't be read
 	std::vector<FMovie> Movies;   // the AVI folder (disc 2)
 	FMovie Intro;                 // root INTRO.AVI (disc 1)
+	FMovie Cab;                   // root DATA1.CAB, the installer's data (disc 1)
 	std::vector<FTrack> Tracks;   // audio tracks (disc 2 only)
 
 	bool IsDisc2() const
@@ -290,6 +296,12 @@ void ReadImageData( FSource& S )
 	R.List( RootLba, RootSize, Root );
 	for( const auto& E : Root )
 	{
+		if( !E.Dir && Lower( E.Name ) == "data1.cab" )
+		{
+			S.Cab.Name = "DATA1.CAB";
+			S.Cab.Size = E.Size;
+			S.Cab.Lba = E.Lba;
+		}
 		if( !E.Dir && Lower( E.Name ) == "intro.avi" )
 		{
 			S.Intro.Name = "INTRO.AVI";
@@ -530,7 +542,13 @@ std::vector<FSource> ScanDrives( bool WithTracks )
 			S.Intro.Path = std::string( Root ) + "INTRO.AVI";
 			S.Intro.Size = FileSize( S.Intro.Path );
 		}
-		if( !S.Useful() )
+		if( FileExists( std::string( Root ) + "DATA1.CAB" ) )
+		{
+			S.Cab.Name = "DATA1.CAB";
+			S.Cab.Path = std::string( Root ) + "DATA1.CAB";
+			S.Cab.Size = FileSize( S.Cab.Path );
+		}
+		if( !S.Useful() && S.Cab.Name.empty() )
 			continue;
 		if( WithTracks && S.IsDisc2() )
 			ReadDriveTracks( S );
@@ -1344,6 +1362,518 @@ bool KHGDiscImportCommandLine( const char* CmdLine, const char* BaseDir, const c
 		fclose( F );
 	}
 	*ExitCode = ( J.Failed || J.Sources.empty() ) ? 1 : 0;
+	return true;
+}
+
+
+/*-----------------------------------------------------------------------------
+	Installing the game from disc 1.
+
+	The retail installer (InstallShield 5, a 16-bit setup.exe) doesn't run on 64-bit Windows. Its
+	data is DATA1.CAB in the root of disc 1; each file group goes to one folder of the install:
+	Maps, Textures and Sounds to their folders, the program, script and ini files to System. The
+	"Editor Shared DLLs" group (old copies of Windows system DLLs for UnrealEd) is left out, and
+	INTRO.AVI from the disc's root is copied to System, as the installer's intro option did.
+-----------------------------------------------------------------------------*/
+
+namespace
+{
+
+// The install folder for a file group of DATA1.CAB, or "" to leave it out.
+std::string GroupFolder( const std::string& Group )
+{
+	const std::string G = Lower( Group );
+	if( G.find( "shared dll" ) != std::string::npos )
+		return "";
+	if( G.find( "map" ) != std::string::npos ) return "Maps";
+	if( G.find( "texture" ) != std::string::npos ) return "Textures";
+	if( G.find( "sound" ) != std::string::npos ) return "Sounds";
+	if( G.find( "music" ) != std::string::npos ) return "Music";
+	return "System";
+}
+
+// Creates a folder and any missing parents (C:\Games\Klingon Honor Guard\ on a fresh PC).
+void MakeDirs( const std::string& Dir )
+{
+	for( size_t i = 3; i <= Dir.size(); i++ )
+		if( i == Dir.size() || Dir[i] == '\\' || Dir[i] == '/' )
+			CreateDirectoryA( Dir.substr( 0, i ).c_str(), NULL );
+}
+
+struct FInstallFile { int Index; std::string Dest; uint64_t Size; };
+
+// Unpacks disc 1 into Target (a folder; made if missing). Fills J.Log; returns an error or "".
+std::string RunInstall( FJob& J, const FSource& Src, const std::string& InTarget )
+{
+	const std::string Target = Slash( FullPath( InTarget ) );
+	MakeDirs( Target );
+	if( !DirExists( Target ) || !Writable( Target ) )
+		return "can't write to " + Target;
+	J.SetCurrent( "Reading the installer data on " + Src.Label );
+
+	// From an image, DATA1.CAB is copied out first (unshield reads a file).
+	std::string Cab = Src.Cab.Path, TempDir;
+	if( !Src.Drive )
+	{
+		TempDir = Target + "KHGInstall.tmp\\";
+		CreateDirectoryA( TempDir.c_str(), NULL );
+		Cab = TempDir + "DATA1.CAB";
+		J.SetCurrent( "Reading DATA1.CAB from " + Src.Label );
+		const std::string Err = CopyMovie( J, Src, Src.Cab, Cab );
+		if( !Err.empty() )
+		{
+			RemoveDirectoryA( TempDir.c_str() );
+			return Err == "cancelled" ? Err : "can't read DATA1.CAB from " + Src.Label + ": " + Err;
+		}
+	}
+	auto Cleanup = [&]()
+	{
+		if( !TempDir.empty() )
+		{
+			DeleteFileA( Cab.c_str() );
+			RemoveDirectoryA( TempDir.c_str() );
+		}
+	};
+	unshield_set_log_level( UNSHIELD_LOG_LEVEL_LOWEST );
+	Unshield* U = unshield_open( Cab.c_str() );
+	if( !U )
+	{
+		Cleanup();
+		return "DATA1.CAB on " + Src.Label + " can't be opened (not the Klingon Honor Guard disc 1, or a damaged copy)";
+	}
+	std::vector<FInstallFile> Files;
+	bool HasGame = false;
+	uint64_t Bytes = 0;
+	for( int g = 0; g < unshield_file_group_count( U ); ++g )
+	{
+		UnshieldFileGroup* G = unshield_file_group_get( U, g );
+		if( !G || !G->name )
+			continue;
+		const std::string Folder = GroupFolder( G->name );
+		if( Folder.empty() )
+		{
+			J.Add( std::string( "left out the file group \"" ) + G->name + "\" (UnrealEd's copies of Windows DLLs)" );
+			continue;
+		}
+		for( unsigned i = G->first_file; i <= G->last_file; ++i )
+		{
+			if( !unshield_file_is_valid( U, (int)i ) || !unshield_file_name( U, (int)i ) )
+				continue;
+			FInstallFile F;
+			F.Index = (int)i;
+			F.Dest = Target + Folder + "\\" + unshield_file_name( U, (int)i );
+			F.Size = unshield_file_size( U, (int)i );
+			HasGame |= ( Lower( unshield_file_name( U, (int)i ) ) == "klingons.u" );
+			Files.push_back( F );
+			Bytes += F.Size;
+		}
+	}
+	if( !HasGame )
+	{
+		unshield_close( U );
+		Cleanup();
+		return "the installer data on " + Src.Label + " has no Klingons.u; it is not Klingon Honor Guard disc 1";
+	}
+	EnterCriticalSection( &J.Lock );
+	J.Plan.Bytes = J.Done + Bytes + ( Src.Intro.Name.empty() ? 0 : Src.Intro.Size );
+	LeaveCriticalSection( &J.Lock );
+	for( const char* Sub : { "System", "Maps", "Textures", "Sounds", "Save" } )
+		CreateDirectoryA( ( Target + Sub ).c_str(), NULL );
+	std::string Err;
+	int Count = 0;
+	for( const FInstallFile& F : Files )
+	{
+		if( J.Cancel ) { Err = "cancelled"; break; }
+		CreateDirectoryA( F.Dest.substr( 0, F.Dest.find_last_of( '\\' ) ).c_str(), NULL );
+		J.SetCurrent( "Installing " + F.Dest.substr( Target.size() ) );
+		if( !unshield_file_save( U, F.Index, F.Dest.c_str() ) )
+		{
+			Err = "can't unpack " + F.Dest.substr( Target.size() ) + " (disk full, or a read error on the disc)";
+			break;
+		}
+		J.Progress( F.Size );
+		Count++;
+	}
+	unshield_close( U );
+	Cleanup();
+	if( Err.empty() )
+	{
+		char B[160];
+		snprintf( B, sizeof(B), "installed %d files (%s) from %s to ", Count, MB( Bytes ).c_str(), Src.Label.c_str() );
+		J.Add( B + Target );
+		if( !Src.Intro.Name.empty() && !J.Cancel )
+		{
+			J.SetCurrent( "Copying INTRO.AVI" );
+			const std::string E = CopyMovie( J, Src, Src.Intro, Target + "System\\INTRO.AVI" );
+			if( E.empty() ) J.Add( "copied INTRO.AVI to " + Target + "System\\" );
+			else if( E != "cancelled" ) J.Add( "FAILED INTRO.AVI: " + E );
+		}
+	}
+	return J.Cancel ? "cancelled" : Err;
+}
+
+std::string DefaultInstallDir()
+{
+	char Drive[MAX_PATH] = "C:";
+	GetEnvironmentVariableA( "SystemDrive", Drive, sizeof(Drive) );
+	return std::string( Drive ) + "\\Games\\Klingon Honor Guard";
+}
+
+// The first disc 1 source: a picked image, else a drive.
+const FSource* Disc1Of( const std::vector<FSource>& Images, const std::vector<FSource>& Drives )
+{
+	for( const auto* L : { &Images, &Drives } )
+		for( const FSource& S : *L )
+			if( !S.Cab.Name.empty() && S.Error.empty() )
+				return &S;
+	return nullptr;
+}
+
+enum { ID_INSTALL = IDOK, ID_IQUIT = IDCANCEL, ID_IIMAGE = 400, ID_ICHANGE = 401, ID_ILOCATE = 402, ID_IDIR = 403 };
+
+struct FInstallWindow
+{
+	HWND Wnd = NULL, Intro = NULL, SourceText = NULL, DirEdit = NULL, Bar = NULL, BarText = NULL;
+	HWND InstallBtn = NULL, ImageBtn = NULL, ChangeBtn = NULL, LocateBtn = NULL, QuitBtn = NULL;
+	HFONT Font = NULL, Bold = NULL;
+	int Dpi = 96;
+	bool Closed = false;
+	int Result = 0;            // 0 quit, 1 installed, 2 locate
+	std::string Installed;     // the new install's System folder
+	std::vector<FSource> Images, Drives;
+	FJob* Job = nullptr;
+	HANDLE Thread = NULL;
+	FSource JobSource;
+	std::string JobTarget, JobError;
+
+	int S( int V ) const { return MulDiv( V, Dpi, 96 ); }
+
+	HWND Child( const char* Class, const char* Text, DWORD Style, int X, int Y, int W, int H, int Id, HFONT F, DWORD Ex = 0 )
+	{
+		HWND C = CreateWindowExA( Ex, Class, Text, WS_CHILD | WS_VISIBLE | Style, S( X ), S( Y ), S( W ), S( H ), Wnd,
+			(HMENU)(INT_PTR)Id, GetModuleHandleA( NULL ), NULL );
+		SendMessageA( C, WM_SETFONT, (WPARAM)F, TRUE );
+		return C;
+	}
+
+	void Refresh()
+	{
+		std::string T;
+		for( const FSource& Src : Images )
+			if( !Src.Error.empty() )
+				T += "Can't use " + Src.Label + ": " + Src.Error + ".\n";
+			else if( Src.Cab.Name.empty() )
+				T += Src.Label + " is not Klingon Honor Guard disc 1 (no DATA1.CAB).\n";
+		const FSource* D = Disc1Of( Images, Drives );
+		if( D )
+			T += "Found disc 1 (" + D->Label + "). The game takes about 300 MB.";
+		else
+			T += "Looking for disc 1 in your CD/DVD drives...";
+		SetWindowTextA( SourceText, T.c_str() );
+		EnableWindow( InstallBtn, D != nullptr );
+	}
+
+	void Create()
+	{
+		const int CW = 560, CH = 300;
+		RECT R = { 0, 0, S( CW ), S( CH ) };
+		const DWORD Style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+		AdjustWindowRectEx( &R, Style, FALSE, 0 );
+		const int WW = R.right - R.left, WH = R.bottom - R.top;
+		RECT Work;
+		SystemParametersInfoA( SPI_GETWORKAREA, 0, &Work, 0 );
+		Wnd = CreateWindowExA( WS_EX_CONTROLPARENT | WS_EX_APPWINDOW, "KHGInstall", "Install Klingon Honor Guard", Style,
+			( Work.left + Work.right - WW ) / 2, ( Work.top + Work.bottom - WH ) / 2, WW, WH, NULL, NULL, GetModuleHandleA( NULL ), this );
+		Intro = Child( "STATIC",
+			"KHGWin runs the game from your own Klingon Honor Guard CD, and it found no installed copy.\n\n"
+			"The game's 1998 installer doesn't run on 64-bit Windows, so KHGWin can install the game itself: "
+			"insert disc 1 (or mount its image) or choose a disc image file, pick a folder and click Install. "
+			"If the game is already installed, click \"Installed game...\" and choose its folder.",
+			SS_LEFT, 16, 14, CW - 32, 92, 0, Font );
+		SourceText = Child( "STATIC", "", SS_LEFT, 16, 112, CW - 32, 40, 0, Bold );
+		Child( "STATIC", "Install to:", SS_LEFT, 16, 160, 70, 20, 0, Font );
+		DirEdit = Child( "EDIT", DefaultInstallDir().c_str(), WS_TABSTOP | ES_AUTOHSCROLL, 88, 157, CW - 88 - 112, 24, ID_IDIR, Font, WS_EX_CLIENTEDGE );
+		ChangeBtn = Child( "BUTTON", "Change...", WS_TABSTOP | BS_PUSHBUTTON, CW - 104, 156, 88, 26, ID_ICHANGE, Font );
+		Bar = Child( PROGRESS_CLASSA, "", 0, 16, 196, CW - 32, 18, 0, Font );
+		SendMessageA( Bar, PBM_SETRANGE32, 0, 1000 );
+		ShowWindow( Bar, SW_HIDE );
+		BarText = Child( "STATIC", "", SS_LEFT | SS_ENDELLIPSIS, 16, 218, CW - 32, 20, 0, Font );
+		const int BY = CH - 42;
+		LocateBtn = Child( "BUTTON", "Installed game...", WS_TABSTOP | BS_PUSHBUTTON, 16, BY, 124, 28, ID_ILOCATE, Font );
+		ImageBtn = Child( "BUTTON", "Disc image...", WS_TABSTOP | BS_PUSHBUTTON, CW - 296, BY, 104, 28, ID_IIMAGE, Font );
+		InstallBtn = Child( "BUTTON", "Install", WS_TABSTOP | BS_DEFPUSHBUTTON, CW - 184, BY, 80, 28, ID_INSTALL, Font );
+		QuitBtn = Child( "BUTTON", "Quit", WS_TABSTOP | BS_PUSHBUTTON, CW - 96, BY, 80, 28, ID_IQUIT, Font );
+		Drives = ScanDrives( false );
+		Refresh();
+		SetTimer( Wnd, TIMER_SCAN, 2000, NULL );
+		ShowWindow( Wnd, SW_SHOWNORMAL );
+		SetForegroundWindow( Wnd );
+		SetFocus( IsWindowEnabled( InstallBtn ) ? InstallBtn : ImageBtn );
+	}
+
+	void PickImage()
+	{
+		char File[MAX_PATH * 2] = "";
+		OPENFILENAMEA O;
+		memset( &O, 0, sizeof(O) );
+		O.lStructSize = sizeof(O);
+		O.hwndOwner = Wnd;
+		O.lpstrFilter = "Disc images (*.cue, *.iso, *.bin)\0*.cue;*.iso;*.bin;*.img\0All files\0*.*\0";
+		O.lpstrFile = File;
+		O.nMaxFile = sizeof(File);
+		O.lpstrTitle = "Klingon Honor Guard disc 1 image";
+		O.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
+		if( !GetOpenFileNameA( &O ) )
+			return;
+		Images.clear();
+		Images.push_back( OpenImage( File ) );
+		Refresh();
+	}
+
+	void ChangeDir()
+	{
+		BROWSEINFOA BI;
+		memset( &BI, 0, sizeof(BI) );
+		BI.hwndOwner = Wnd;
+		BI.lpszTitle = "Folder to install Klingon Honor Guard in (a new or empty folder)";
+		BI.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+		LPITEMIDLIST Pidl = SHBrowseForFolderA( &BI );
+		if( !Pidl )
+			return;
+		char Path[MAX_PATH] = "";
+		if( SHGetPathFromIDListA( Pidl, Path ) )
+			SetWindowTextA( DirEdit, Path );
+		CoTaskMemFree( Pidl );
+	}
+
+	static DWORD WINAPI InstallThread( LPVOID P )
+	{
+		FInstallWindow* W = (FInstallWindow*)P;
+		W->JobError = RunInstall( *W->Job, W->JobSource, W->JobTarget );
+		InterlockedExchange( &W->Job->Finished, 1 );
+		return 0;
+	}
+
+	void StartInstall()
+	{
+		const FSource* D = Disc1Of( Images, Drives );
+		if( !D )
+			return;
+		char Dir[MAX_PATH * 2] = "";
+		GetWindowTextA( DirEdit, Dir, sizeof(Dir) );
+		JobTarget = FullPath( Dir );
+		if( FileExists( Slash( JobTarget ) + "System\\Engine.u" ) )
+		{
+			Installed = Slash( JobTarget ) + "System\\";
+			Result = 1;
+			MessageBoxA( Wnd, ( JobTarget + "\n\nThe game is already installed there. KHGWin uses that copy." ).c_str(),
+				"Install Klingon Honor Guard", MB_OK | MB_ICONINFORMATION );
+			DestroyWindow( Wnd );
+			return;
+		}
+		KillTimer( Wnd, TIMER_SCAN );
+		JobSource = *D;
+		Job = new FJob;
+		for( HWND H : { InstallBtn, ImageBtn, ChangeBtn, LocateBtn, DirEdit } )
+			EnableWindow( H, FALSE );
+		SetWindowTextA( QuitBtn, "Cancel" );
+		ShowWindow( Bar, SW_SHOW );
+		Thread = CreateThread( NULL, 0, InstallThread, this, 0, NULL );
+		SetTimer( Wnd, TIMER_PROGRESS, 100, NULL );
+	}
+
+	void UpdateProgress()
+	{
+		if( !Job )
+			return;
+		EnterCriticalSection( &Job->Lock );
+		const uint64_t Done = Job->Done, Total = std::max<uint64_t>( 1, Job->Plan.Bytes ? Job->Plan.Bytes : JobSource.Cab.Size );
+		const std::string Cur = Job->Current;
+		LeaveCriticalSection( &Job->Lock );
+		SendMessageA( Bar, PBM_SETPOS, (WPARAM)std::min<uint64_t>( 1000, Done * 1000 / Total ), 0 );
+		SetWindowTextA( BarText, Cur.c_str() );
+		if( !Job->Finished )
+			return;
+		KillTimer( Wnd, TIMER_PROGRESS );
+		WaitForSingleObject( Thread, INFINITE );
+		CloseHandle( Thread );
+		Thread = NULL;
+		for( const std::string& L : Job->Log )
+			GStatus.push_back( L );
+		const bool Cancelled = Job->Cancel != 0;
+		delete Job;
+		Job = nullptr;
+		if( JobError.empty() )
+		{
+			Installed = Slash( JobTarget ) + "System\\";
+			Result = 1;
+			GStatus.push_back( "game installed from disc 1 in " + JobTarget );
+			DestroyWindow( Wnd );
+			return;
+		}
+		if( !Cancelled )
+			MessageBoxA( Wnd, ( "The game could not be installed:\n\n" + JobError ).c_str(), "Install Klingon Honor Guard", MB_OK | MB_ICONWARNING );
+		for( HWND H : { InstallBtn, ImageBtn, ChangeBtn, LocateBtn, DirEdit } )
+			EnableWindow( H, TRUE );
+		SetWindowTextA( QuitBtn, "Quit" );
+		ShowWindow( Bar, SW_HIDE );
+		SetWindowTextA( BarText, Cancelled ? "Stopped. The files unpacked so far are still in the folder." : "" );
+		Refresh();
+		SetTimer( Wnd, TIMER_SCAN, 2000, NULL );
+	}
+
+	static LRESULT CALLBACK StaticProc( HWND H, UINT Msg, WPARAM W, LPARAM L )
+	{
+		if( Msg == WM_NCCREATE )
+			SetWindowLongPtrA( H, GWLP_USERDATA, (LONG_PTR)( (CREATESTRUCTA*)L )->lpCreateParams );
+		FInstallWindow* Me = (FInstallWindow*)GetWindowLongPtrA( H, GWLP_USERDATA );
+		if( Me )
+		{
+			Me->Wnd = H;
+			return Me->Proc( Msg, W, L );
+		}
+		return DefWindowProcA( H, Msg, W, L );
+	}
+
+	LRESULT Proc( UINT Msg, WPARAM W, LPARAM L )
+	{
+		switch( Msg )
+		{
+		case WM_CTLCOLORSTATIC:
+			SetBkMode( (HDC)W, TRANSPARENT );
+			return (LRESULT)GetSysColorBrush( COLOR_WINDOW );
+		case WM_ERASEBKGND:
+		{
+			RECT R;
+			GetClientRect( Wnd, &R );
+			FillRect( (HDC)W, &R, GetSysColorBrush( COLOR_WINDOW ) );
+			return 1;
+		}
+		case WM_DEVICECHANGE:
+			if( !Job ) { Drives = ScanDrives( false ); Refresh(); }
+			return TRUE;
+		case WM_TIMER:
+			if( W == TIMER_SCAN && !Job ) { Drives = ScanDrives( false ); Refresh(); }
+			if( W == TIMER_PROGRESS ) UpdateProgress();
+			return 0;
+		case WM_COMMAND:
+			switch( LOWORD( W ) )
+			{
+			case ID_INSTALL: StartInstall(); return 0;
+			case ID_IIMAGE: PickImage(); return 0;
+			case ID_ICHANGE: ChangeDir(); return 0;
+			case ID_ILOCATE: Result = 2; DestroyWindow( Wnd ); return 0;
+			case ID_IQUIT:
+				if( Job ) { InterlockedExchange( &Job->Cancel, 1 ); SetWindowTextA( BarText, "Stopping..." ); }
+				else DestroyWindow( Wnd );
+				return 0;
+			}
+			break;
+		case WM_CLOSE:
+			if( Job ) InterlockedExchange( &Job->Cancel, 1 );
+			else DestroyWindow( Wnd );
+			return 0;
+		case WM_DESTROY:
+			Closed = true;
+			return 0;
+		}
+		return DefWindowProcA( Wnd, Msg, W, L );
+	}
+};
+
+} // namespace
+
+int KHGRunGameInstall( std::string* SystemDir )
+{
+	SetDpiAware();
+	FVisualStyles Styles;
+	HMODULE ComCtl = LoadLibraryA( "comctl32.dll" );
+	typedef BOOL (WINAPI *FInit)( const INITCOMMONCONTROLSEX* );
+	FInit Init = ComCtl ? (FInit)(void*)GetProcAddress( ComCtl, "InitCommonControlsEx" ) : nullptr;
+	if( Init )
+	{
+		INITCOMMONCONTROLSEX ICC = { sizeof(ICC), ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES };
+		Init( &ICC );
+	}
+	CoInitializeEx( NULL, COINIT_APARTMENTTHREADED );   // the folder dialog
+	WNDCLASSEXA WC;
+	memset( &WC, 0, sizeof(WC) );
+	WC.cbSize = sizeof(WC);
+	WC.lpfnWndProc = FInstallWindow::StaticProc;
+	WC.hInstance = GetModuleHandleA( NULL );
+	WC.hIcon = LoadIconA( WC.hInstance, MAKEINTRESOURCEA( 128 ) );
+	WC.hIconSm = WC.hIcon;
+	WC.hCursor = LoadCursorA( NULL, (LPCSTR)IDC_ARROW );
+	WC.lpszClassName = "KHGInstall";
+	RegisterClassExA( &WC );
+	FInstallWindow W;
+	W.Dpi = SystemDpi();
+	W.Font = CreateFontA( -MulDiv( 9, W.Dpi, 72 ), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI" );
+	W.Bold = CreateFontA( -MulDiv( 9, W.Dpi, 72 ), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI" );
+	W.Create();
+	MSG Msg;
+	while( !W.Closed && GetMessageA( &Msg, NULL, 0, 0 ) > 0 )
+	{
+		if( IsWindow( W.Wnd ) && IsDialogMessageA( W.Wnd, &Msg ) )
+			continue;
+		TranslateMessage( &Msg );
+		DispatchMessageA( &Msg );
+	}
+	UnregisterClassA( "KHGInstall", GetModuleHandleA( NULL ) );
+	DeleteObject( W.Font );
+	DeleteObject( W.Bold );
+	if( SystemDir )
+		*SystemDir = W.Installed;
+	return W.Result;
+}
+
+bool KHGInstallCommandLine( const char* CmdLine, int* ExitCode )
+{
+	const std::string C = CmdLine ? CmdLine : "";
+	auto Arg = [&]( const char* Key ) -> std::string
+	{
+		const size_t P = Lower( C ).find( Key );
+		if( P == std::string::npos )
+			return "";
+		size_t I = P + strlen( Key );
+		if( I < C.size() && C[I] == '"' )
+		{
+			const size_t E = C.find( '"', I + 1 );
+			return C.substr( I + 1, E == std::string::npos ? std::string::npos : E - I - 1 );
+		}
+		const size_t E = C.find( ' ', I );
+		return C.substr( I, E == std::string::npos ? std::string::npos : E - I );
+	};
+	const std::string From = Arg( "-khginstall=" );
+	if( From.empty() )
+		return false;
+	std::string To = Arg( "-khginstalldir=" );
+	if( To.empty() )
+		To = DefaultInstallDir();
+	std::vector<FSource> Images, Drives;
+	if( From.size() == 2 && From[1] == ':' )
+	{
+		for( FSource& S : ScanDrives( false ) )
+			if( toupper( (unsigned char)S.Drive ) == toupper( (unsigned char)From[0] ) )
+				Drives.push_back( S );
+	}
+	else
+		Images.push_back( OpenImage( From ) );
+	const FSource* D = Disc1Of( Images, Drives );
+	FJob J;
+	const std::string Err = D ? RunInstall( J, *D, To ) : "no disc 1 found in " + From;
+	MakeDirs( Slash( FullPath( To ) ) );
+	FILE* F = fopen( ( Slash( To ) + "KHGInstall.log" ).c_str(), "wb" );
+	if( F )
+	{
+		for( const std::string& L : J.Log )
+			fprintf( F, "%s\r\n", L.c_str() );
+		fprintf( F, "%s\r\n", Err.empty() ? "done" : ( "ERROR: " + Err ).c_str() );
+		fclose( F );
+	}
+	*ExitCode = Err.empty() ? 0 : 1;
 	return true;
 }
 

@@ -6,6 +6,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>  // IFileOpenDialog (game folder picker)
 #include "KHGDesktopConfig.h"
+#include "KHGDiscImport.h"
 #include <stdlib.h>
 
 #include <stdio.h>
@@ -1049,11 +1050,23 @@ bool KHGDesktopChooseGameDir( const char* CmdLine )
 			GGameDirStatus += "no game folder found (-nogamedirdialog)";
 			return false;
 		}
-		MessageBoxA( NULL,
-			"KHGWin runs the game from your own copy of Star Trek: Klingon Honor Guard, and it could not find it.\n\n"
-			"Choose the folder the game is installed in (the one that has the System, Maps and Textures folders) in the next window. "
-			"KHGWin remembers it; nothing in that folder is changed.",
-			"Klingon Honor Guard", MB_OK | MB_ICONINFORMATION | MB_TOPMOST );
+		// [KHG] No install: offer to install from disc 1 (the 1998 installer doesn't run on 64-bit
+		// Windows), or to choose an installed copy (KHGDiscImport.cpp).
+		std::string Installed;
+		const int Choice = KHGRunGameInstall( &Installed );
+		if( Choice == 1 && !GameSystemDirOf( Installed ).empty() )
+		{
+			Dir = GameSystemDirOf( Installed );
+			How = "installed from disc 1";
+		}
+		else if( Choice != 2 )
+		{
+			GGameDirStatus += "no game folder chosen";
+			return false;
+		}
+	}
+	if( Dir.empty() )
+	{
 		std::string Start = Saved[0] ? FullPath( ExeDir, Saved ) : ExeDir;
 		for( ;; )
 		{

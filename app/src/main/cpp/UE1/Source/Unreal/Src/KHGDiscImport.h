@@ -34,5 +34,16 @@ void KHGRunDiscImport( void* Owner, const char* BaseDir, const char* UserDir, co
 // to <UserDir>KHGDiscImport.log. Returns false when the switch isn't there.
 bool KHGDiscImportCommandLine( const char* CmdLine, const char* BaseDir, const char* UserDir, const char* IniPath, int* ExitCode );
 
+// No install found: shows the "Install Klingon Honor Guard" window, which installs the game from disc 1
+// (a drive or a .cue/.bin/.iso image; the 1998 installer doesn't run on 64-bit Windows) by unpacking its
+// DATA1.CAB. Returns 1 when installed (*SystemDir = the new install's System folder), 2 when the user
+// wants to choose an installed copy, 0 to quit.
+#include <string>
+int KHGRunGameInstall( std::string* SystemDir );
+
+// -khginstall=<drive|.cue|.iso> [-khginstalldir=<folder>]: installs without a window, writes
+// <folder>\KHGInstall.log and returns true (the caller exits with *ExitCode).
+bool KHGInstallCommandLine( const char* CmdLine, int* ExitCode );
+
 // Writes what the copy did to the engine log. Call after appInit().
 void KHGDiscImportLogStatus();

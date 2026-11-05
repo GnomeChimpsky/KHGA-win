@@ -61,6 +61,9 @@ cp "$FFMPEG_PREFIX/COPYING.LGPLv2.1" "$STAGE/KHGWin-Licenses/FFmpeg-LGPL-2.1.txt
 cp "$ROOT"/desktop/patches/ffmpeg-*.patch "$STAGE/KHGWin-Licenses/"   # our FFmpeg changes (LGPL)
 cp "$ROOT/app/src/main/cpp/thirdparty/libxmp/docs/COPYING" "$STAGE/KHGWin-Licenses/libxmp.txt"
 cp "$ROOT/app/src/main/cpp/UE1/Source/ZVulkan/LICENSE.md" "$STAGE/KHGWin-Licenses/ZVulkan-volk-VMA-glslang.txt"
+cp "$ROOT/app/src/main/cpp/thirdparty/unshield/LICENSE" "$STAGE/KHGWin-Licenses/unshield.txt"
+sed -n '1,/^ \*\//p' "$ROOT/app/src/main/cpp/thirdparty/unshield/lib/md5/md5c.c" > "$STAGE/KHGWin-Licenses/unshield-RSA-MD5.txt"
+cp "$ROOT/app/src/main/cpp/thirdparty/zlib/LICENSE" "$STAGE/KHGWin-Licenses/zlib.txt"
 # MinGW-w64 runtime (statically linked C runtime start-up code).
 if [ -f /usr/share/doc/mingw-w64-common/copyright ]; then
   cp /usr/share/doc/mingw-w64-common/copyright "$STAGE/KHGWin-Licenses/MinGW-w64-runtime.txt"

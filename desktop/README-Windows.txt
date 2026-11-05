@@ -12,10 +12,23 @@ Install
 
 The first time, KHGWin looks for the game: in its own folder, then in the
 folders around it (so a KHGWin folder inside or next to the game's folder is
-found). If it can't find it, it asks you for the folder you installed the game
-in (the one with the System, Maps and Textures folders) and remembers it, as
-GameDir in KHGWin.ini. To choose another one later, start KHGWin.exe with
--pickgamedir, or use -gamedir=<folder> for one run.
+found). It remembers the folder as GameDir in KHGWin.ini. To choose another
+one later, start KHGWin.exe with -pickgamedir, or use -gamedir=<folder> for
+one run.
+
+If it finds no installed game, it opens "Install Klingon Honor Guard":
+
+- Not installed yet: the game's 1998 installer doesn't run on 64-bit Windows,
+  so KHGWin installs the game itself. Insert disc 1 (or mount its image), or
+  click "Disc image..." and choose a .cue/.bin or .iso image of disc 1, pick
+  a folder (C:\Games\Klingon Honor Guard by default) and click Install. It
+  unpacks the game files from the disc's DATA1.CAB the way the installer
+  does (about 300 MB, version 1.0) and copies the intro movie, then goes on
+  to the movies and music on disc 2 (below). Nothing is written to the
+  registry or to Windows. KHGWin.exe can stay where it is, or go into the new
+  System folder.
+- Already installed: click "Installed game..." and choose the folder you
+  installed the game in (the one with the System, Maps and Textures folders).
 
 You can also copy the files into the System folder of your retail install
 (the folder that contains Khg.exe), as earlier builds were installed; nothing

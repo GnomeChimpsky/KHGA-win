@@ -4899,6 +4899,12 @@ int main( int argc, const char** argv )
 	KHGDesktopChooseUserDir( appExeDir(), appCmdLine() );
 	// [KHG] M9: KHGWin.exe can run from a folder of its own; find the retail install (or ask for it) and run
 	// in its System folder, as the retail ini's relative paths (..\Maps etc.) expect.
+	{
+		// [KHG] -khginstall=<disc 1 drive|.cue|.iso>: installs the game and exits (KHGDiscImport.cpp).
+		int InstallExit = 0;
+		if( KHGInstallCommandLine( appCmdLine(), &InstallExit ) )
+			TerminateProcess( GetCurrentProcess(), InstallExit );
+	}
 	if( !KHGDesktopChooseGameDir( appCmdLine() ) )
 		TerminateProcess( GetCurrentProcess(), 1 );   // nothing initialised yet (see the launcher's Quit below)
 	appChdir( appBaseDir() );

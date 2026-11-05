@@ -119,8 +119,24 @@ target_link_libraries(NOpenALDrv ff_avformat ff_avcodec ff_avutil ff_swresample)
 target_include_directories(NOpenALDrv PRIVATE "${FFMPEG_INCLUDE_DIR}")
 # M8: frame pacing and the -khgtiming test mode.
 target_sources(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/KHGTiming.cpp")
-# Movies and CD music copied from the game CD (KHGDiscImport.cpp).
+# Movies and CD music copied from the game CD, and the game installed from disc 1 (KHGDiscImport.cpp).
 target_sources(Unreal PRIVATE "${UE1_ROOT}/Source/Unreal/Src/KHGDiscImport.cpp")
+# unshield + zlib (inflate only) unpack the retail installer's DATA1.CAB (InstallShield 5).
+set(KHG_THIRDPARTY "${CMAKE_CURRENT_LIST_DIR}/../app/src/main/cpp/thirdparty")
+add_library(khg_zlib STATIC
+    "${KHG_THIRDPARTY}/zlib/adler32.c" "${KHG_THIRDPARTY}/zlib/crc32.c" "${KHG_THIRDPARTY}/zlib/inffast.c"
+    "${KHG_THIRDPARTY}/zlib/inflate.c" "${KHG_THIRDPARTY}/zlib/inftrees.c" "${KHG_THIRDPARTY}/zlib/zutil.c")
+target_include_directories(khg_zlib PUBLIC "${KHG_THIRDPARTY}/zlib")
+add_library(khg_unshield STATIC
+    "${KHG_THIRDPARTY}/unshield/lib/component.c" "${KHG_THIRDPARTY}/unshield/lib/converter.c"
+    "${KHG_THIRDPARTY}/unshield/lib/directory.c" "${KHG_THIRDPARTY}/unshield/lib/file.c"
+    "${KHG_THIRDPARTY}/unshield/lib/file_group.c" "${KHG_THIRDPARTY}/unshield/lib/helper.c"
+    "${KHG_THIRDPARTY}/unshield/lib/libunshield.c" "${KHG_THIRDPARTY}/unshield/lib/log.c"
+    "${KHG_THIRDPARTY}/unshield/lib/md5/md5c.c")
+target_include_directories(khg_unshield PUBLIC "${KHG_THIRDPARTY}/unshield/lib" PRIVATE "${KHG_THIRDPARTY}/unshield")
+target_compile_options(khg_unshield PRIVATE -w)
+target_link_libraries(khg_unshield PUBLIC khg_zlib)
+target_link_libraries(Unreal khg_unshield)
 # The launcher defines its own WinMain (SDLLaunch.cpp), so SDL2main is not linked.
 target_link_libraries(Unreal xmp_static shell32 ole32 uuid comdlg32)   # shell32/ole32/uuid: Saved Games folder, game folder dialog (KHGDesktopConfig.cpp)
 

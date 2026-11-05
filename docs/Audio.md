@@ -64,3 +64,12 @@ folder into System; when the install can't be written to, both go to the user fo
 from the launcher's "Game CD..." button. `-khgdiscimport=<drive|.cue|.iso|auto>` copies without a
 window and writes `KHGDiscImport.log` to the user folder.
 
+
+Installing from disc 1 (same file): when KHGWin finds no install, the "Install Klingon Honor Guard"
+window replaces the folder picker. It reads disc 1 (a drive, or a .cue/.bin or .iso image), unpacks
+its InstallShield 5 `DATA1.CAB` with the vendored unshield library into the chosen folder (file
+groups Maps, Textures and Sounds into their folders, everything else into System; "Editor Shared
+DLLs", the editor's copies of Windows DLLs, is left out), copies the root `INTRO.AVI` into System
+and saves the folder as GameDir. The result matches an unshield extraction byte for byte, and all
+retail maps load from it. `-khginstall=<drive|.cue|.iso> [-khginstalldir=<folder>]` installs without
+a window and writes `KHGInstall.log` to the folder.
