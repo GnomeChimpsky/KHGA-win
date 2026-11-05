@@ -19,7 +19,7 @@ Using the Collection Chamber release (recommended):
 2. Download `KHGWin-<version>-win64.zip` from [Releases](../../releases) and unzip it anywhere.
 3. Run `KHGWin.exe`. KHGWin finds the install next to or around its own folder, or
    asks for it once ("Installed game...").
-4. No updates needen. The Collection Chamber release is already v1.1.
+4. No updates needed, the Collection Chamber release is already v1.1.
 5. The launcher window opens: pick your settings, then click **Play**.
 
 Using retail discs or disc images (.bin/.cue recommended):
