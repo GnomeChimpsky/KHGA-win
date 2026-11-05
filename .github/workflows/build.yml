@@ -17,6 +17,7 @@ jobs:
         include:
           - arch: x86_64
             name: win64
+          # 32-bit is built as a compile check and fidelity reference only; releases ship win64.
           - arch: i686
             name: win32
     steps:
@@ -90,7 +91,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft \
             --title "KHGWin ${GITHUB_REF_NAME}" \
             --notes "Windows port of Star Trek: Klingon Honor Guard. Needs your own retail copy of the game; contains no game data. Unzip KHGWin-*-win64.zip anywhere and run KHGWin.exe (see KHGWin-README.txt). The -debug zips are for reading crash reports; the lgpl-sources zip holds the FFmpeg and OpenAL Soft sources of the shipped DLLs." \
-            dist/*/KHGWin-*.zip
+            dist/KHGWin-win64-zips/KHGWin-*.zip dist/KHGWin-lgpl-sources/KHGWin-*.zip
 
   android:
     name: Android debug APK
