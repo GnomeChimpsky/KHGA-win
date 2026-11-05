@@ -78,6 +78,7 @@ void UNOpenALAudioSubsystem::InternalClassInitializer( UClass* Class )
 #ifdef KHG_CDMUSIC
 	new(Class, "UseCDMusic",         RF_Public)UBoolProperty  ( CPP_PROPERTY( UseCDMusic         ), "Audio", CPF_Config );
 	new(Class, "CDMusicPath",        RF_Public)UStringProperty( CPP_PROPERTY( CDMusicPath        ), "Audio", CPF_Config, sizeof(CDMusicPath)-1 );
+	new(Class, "MusicMode",          RF_Public)UByteProperty  ( CPP_PROPERTY( MusicMode          ), "Audio", CPF_Config );
 #endif
 	unguardSlow;
 }
@@ -97,6 +98,7 @@ UNOpenALAudioSubsystem::UNOpenALAudioSubsystem()
 #ifdef KHG_CDMUSIC
 	UseCDMusic = true;
 	appStrcpy( CDMusicPath, "..\\Music" );
+	MusicMode = 0;
 #endif
 }
 
@@ -176,10 +178,17 @@ UBOOL UNOpenALAudioSubsystem::Init()
 		FreeCDBuffers[i] = CDBuffers[i];
 	NumFreeCDBuffers = NUM_MUSIC_BUFFERS;
 	CDTrack = 255;
-	debugf( NAME_Init, "CD music: %s, tracks from '%s'", UseCDMusic ? "on" : "off (UseCDMusic=False)", CDMusicPath );
-#endif
-
+	static const char* const ModeNames[] = { "automatic (the CD track when a file for it exists, otherwise the module music)",
+		"CD tracks only", "module music only", "retail switches" };
+	debugf( NAME_Init, "Music: %s, CD tracks from '%s'", ModeNames[Min<INT>( MusicMode, 3 )], CDMusicPath );
+	if( MusicMode == 3 )
+	{
+		debugf( NAME_Init, "CD music: %s", UseCDMusic ? "on" : "off (UseCDMusic=False)" );
+		debugf( NAME_Init, "Module music: %s", UseDigitalMusic ? "on" : "off (UseDigitalMusic=False)" );
+	}
+#else
 	debugf( NAME_Init, "Module music: %s", UseDigitalMusic ? "on" : "off (UseDigitalMusic=False)" );
+#endif
 
 #ifdef KHG_GALAXYREVERB
 	// Effects on a loopback device, so Galaxy's zone echo can be added to their mix.
@@ -1058,20 +1067,35 @@ void UNOpenALAudioSubsystem::Update( FPointRegion Region, FCoords& Listener )
 			}
 			Music = Viewport->Actor->Song;
 			MusicSection = Viewport->Actor->SongSection;
+			UBOOL PlaySong = UseDigitalMusic, PlayCD = false;
+#ifdef KHG_CDMUSIC
+			// Galaxy starts PlayerPawn.CdTrack from its beginning, once, next to any song (MusicMode 3).
+			// [KHG] By default (MusicMode 0) a level plays one or the other: its CD track when a ripped
+			// file for it exists, otherwise its song, so retail installs (CD tracks only) and installs
+			// with fan-made module music (songs that are the CD tracks) both just work.
+			CDTrack = Viewport->Actor->CdTrack;
+			const UBOOL HasCD = CDTrack != 255 && MusicMode != 2 && ( MusicMode == 3 ? UseCDMusic : !FindCDTrack( CDTrack ).empty() );
+			PlayCD = HasCD;
+			PlaySong = MusicMode == 3 ? UseDigitalMusic : MusicMode == 2 ? true : MusicMode == 1 ? false : !HasCD;			char TrackName[8] = "none";
+			if( CDTrack != 255 )
+				appSprintf( TrackName, "%i", CDTrack );
+			if( ( Music && MusicSection != 255 ) || CDTrack != 255 )
+				debugf( NAME_Log, "[KHG] Music: song %s%s, CD track %s%s", Music ? Music->GetName() : "none",
+					Music && MusicSection != 255 ? ( PlaySong ? " (playing)" : " (not played)" ) : "",
+					TrackName, CDTrack == 255 ? "" : PlayCD ? " (playing)" : " (not played)" );
+#endif
 			if( Music )
 			{
 				if( MusicChanged )
 					RegisterMusic( Music );
-				// Like Galaxy, the song is still followed for transitions but only played with UseDigitalMusic.
-				if( MusicSection != 255 && UseDigitalMusic )
+				// Like Galaxy, the song is still followed for transitions but only played when chosen.
+				if( MusicSection != 255 && PlaySong )
 					PlayMusic();
 				else
 					StopMusic();
 			}
 #ifdef KHG_CDMUSIC
-			// Galaxy then starts PlayerPawn.CdTrack from its beginning, once, next to any song.
-			CDTrack = Viewport->Actor->CdTrack;
-			if( CDTrack != 255 && UseCDMusic )
+			if( PlayCD )
 				StartCDTrack( CDTrack );
 #endif
 			Viewport->Actor->Transition = MTRAN_None;
@@ -1318,12 +1342,9 @@ void* UNOpenALAudioSubsystem::MusicThreadProc( void* Audio )
 	[KHG] Ripped CD tracks.
 -----------------------------------------------------------------------------*/
 
-void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
+// The file for a CD track: in CDMusicPath, or the user folder's Music (desktop); "" when there is none.
+std::string UNOpenALAudioSubsystem::FindCDTrack( BYTE Track )
 {
-	guard(UNOpenALAudioSubsystem::StartCDTrack)
-
-	StopCDTrack();
-
 	// CDMusicPath is relative to the System folder unless it is absolute.
 	char Dir[512];
 	const char* Base = appBaseDir();
@@ -1331,7 +1352,6 @@ void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
 		appSprintf( Dir, "%s", CDMusicPath );
 	else
 		appSprintf( Dir, "%s%s", Base ? Base : "", CDMusicPath );
-
 	std::string File = CDMusicFindTrack( Dir, Track );
 #ifdef PLATFORM_WIN32
 	if( File.empty() )
@@ -1342,9 +1362,19 @@ void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
 		File = CDMusicFindTrack( UserMusic, Track );
 	}
 #endif
+	return File;
+}
+
+void UNOpenALAudioSubsystem::StartCDTrack( BYTE Track )
+{
+	guard(UNOpenALAudioSubsystem::StartCDTrack)
+
+	StopCDTrack();
+
+	const std::string File = FindCDTrack( Track );
 	if( File.empty() )
 	{
-		debugf( NAME_Log, "[KHG] CD track %i: no file for it in %s (as without the game CD)", Track, Dir );
+		debugf( NAME_Log, "[KHG] CD track %i: no file for it in %s (as without the game CD)", Track, CDMusicPath );
 		return;
 	}
 	char Error[256] = "";

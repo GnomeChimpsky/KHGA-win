@@ -6,6 +6,7 @@
 #include "AL/alc.h"
 #include "xmp.h"
 #include "Engine.h"
+#include <string>
 #ifdef KHG_GALAXYREVERB
 #include "GalaxyReverb.h"
 #endif
@@ -51,6 +52,11 @@ class DLL_EXPORT UNOpenALAudioSubsystem : public UAudioSubsystem
 #ifdef KHG_CDMUSIC
 	UBOOL UseCDMusic;
 	char CDMusicPath[256];
+	// [KHG] Which music a level plays: 0 automatic (its CD track when a file for it exists, otherwise its
+	// module music; never both), 1 CD tracks only, 2 module music only, 3 the retail switches
+	// (UseCDMusic / UseDigitalMusic, both can play at once, as Galaxy does).
+	BYTE MusicMode;
+	std::string FindCDTrack( BYTE Track );
 #endif
 	UBOOL UseDigitalMusic; // [KHG] Galaxy's switch for module (UMX) music
 

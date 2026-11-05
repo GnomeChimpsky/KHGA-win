@@ -865,12 +865,12 @@ struct FLauncher
 			"Places sounds around you on headphones. Turn it off if sound seems odd on speakers." );
 		AddCheck( PG_Audio, SecAudio, "UseReverb", true, "Room reverb",
 			"Echo in caves, halls and corridors, made the way the retail game's Galaxy audio makes it for each area." );
-		AddCheck( PG_Audio, SecAudio, "UseDigitalMusic", true, "Module music",
-			"Plays the game's own music files (.umx in the Music folder), like the retail \"digital music\" setting. "
-			"Taken from your Khg.ini on first run." );
-		AddCheck( PG_Audio, SecAudio, "UseCDMusic", true, "Music from ripped CD tracks",
-			"Plays the game CD's music from the music folder (Track02.wav and so on; \"Game CD...\" copies them from disc 2), "
-			"like the retail CD music setting. Taken from your Khg.ini on first run. See KHGWin-README.txt." );
+		AddCombo( PG_Audio, SecAudio, "MusicMode", "Music",
+			"Automatic: each level plays its music from the game CD (Track02.wav and so on in the music folder; "
+			"\"Game CD...\" copies them from disc 2), and when that file isn't there, the level's own module music (.umx) "
+			"if it has any. Never both. The other choices play only one kind. See KHGWin-README.txt.",
+			{ { "Automatic", "0" }, { "CD tracks only", "1" }, { "Module music only", "2" } },
+			Get( SecAudio, "MusicMode", "0" ) );
 		AddEdit( PG_Audio, SecAudio, "CDMusicPath", "..\\Music", "CD music folder",
 			"Folder with the ripped CD tracks. A relative path starts from the System folder; ..\\Music is the Music folder of the install." );
 	}

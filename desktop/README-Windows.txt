@@ -242,21 +242,23 @@ your install (next to System), named by track number:
 .ogg, .flac, .mp3, .wav and .opus work; "Track 02", "02" or "02 - Title"
 are also found. Like the CD, a track plays once from its start and is not
 repeated, at the in-game music volume. Without the files the game has no
-music, as the retail game has none without the CD. KHGWin.log says which file it plays
-("[KHG] CD track"). Settings in KHGWin.ini:
+music, as the retail game has none without the CD.
+
+Which music plays is automatic: a level plays its CD track when there is a
+file for it, and otherwise its module music (.umx), if the level names one.
+Never both. Retail installs get the CD tracks; installs with a fan patch that
+turned the CD tracks into .umx files and took the CD tracks out of the maps
+(the Collection Chamber release) get those. The launcher's Audio tab can
+limit it to one kind ("CD tracks only", "Module music only"). KHGWin.log has
+a "[KHG] Music:" line per level saying what plays. Settings in KHGWin.ini:
 
   [NOpenALDrv.NOpenALAudioSubsystem]
-  UseCDMusic=True            False = never play CD tracks
-  UseDigitalMusic=True       False = never play the module music (.umx)
+  MusicMode=0                0 automatic, 1 CD tracks only, 2 module music
+                             only, 3 the retail switches below (both can
+                             play at once, as in Khg.exe)
+  UseCDMusic=True            with MusicMode=3: False = no CD tracks
+  UseDigitalMusic=True       with MusicMode=3: False = no module music
   CDMusicPath=..\Music       folder with the track files (relative to System)
-
-Like the retail Galaxy audio, the level's module music plays only with
-UseDigitalMusic and the CD track only with UseCDMusic. KHGWin takes both from
-your retail Khg.ini the first time it runs (the retail game's "CD music" and
-"digital music" choice), so it plays the same music as Khg.exe. Some installs
-have a fan patch that turns the CD tracks into .umx files (track2.umx and so
-on, Khg.ini with UseCDMusic=False); turning both on there plays the same piece
-twice.
 
 The console command "cdtrack 2" plays a track, like in retail.
 

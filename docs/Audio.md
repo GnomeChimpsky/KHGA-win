@@ -38,9 +38,13 @@ on every change. Android keeps the EFX generic reverb.
 
 ## Music switches
 
-`[NOpenALDrv.NOpenALAudioSubsystem] UseDigitalMusic` and `UseCDMusic` work like Galaxy's.
-`KHGDesktopConfig.cpp` copies them once from the retail Khg.ini (else Default.ini) into
-KHGWin.ini (`[KHGWin] AudioDefaults=1`).
+`[NOpenALDrv.NOpenALAudioSubsystem] MusicMode` (desktop, `KHG_CDMUSIC`) picks the music per level:
+0 (default) = the level's CdTrack when `FindCDTrack` finds a file for it, otherwise its Song, never
+both; 1 = CD tracks only; 2 = songs only; 3 = Galaxy's switches: `UseDigitalMusic` and `UseCDMusic`,
+both may play. Retail maps have a CdTrack and no Song; the Collection Chamber maps have a Song
+(trackN.umx) and no CdTrack, so mode 0 plays the right one on both. `KHGDesktopConfig.cpp` still copies
+the two switches once from the retail Khg.ini (`[KHGWin] AudioDefaults=1`) for mode 3. Each level
+logs `[KHG] Music: song ..., CD track ...` with what plays.
 
 ## Known differences
 
