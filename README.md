@@ -3,29 +3,33 @@
 A native 64-bit Windows port of *Star Trek: Klingon Honor Guard* (MicroProse, 1998), the
 **Unreal Engine 1** first-person shooter. It runs the original retail game data on modern
 Windows with a Vulkan renderer, and keeps the game looking, sounding and playing the way the
-1998 PC release does. Widescreen, high frame rates and modern controllers are supported on top
-of that, each one switchable back to the retail behaviour.
+1998 PC release does. Widescreen, high frame rates and modern controllers are supported.
 
-No game data is included. You need your own copy of the game: the retail CDs, or an existing
-install.
+No game data is included. You need your own copy of the game: the retail CDs, disc images or an existing
+install. KHGWin does not overwrite files or write anything to the registry.
 
 KHGWin is a fork of the Android port
 [imjustadudegamer/Klingon-Honor-GUARD-Android](https://github.com/imjustadudegamer/Klingon-Honor-GUARD-Android)
 and shares its engine tree, which is adapted to be binary-compatible with KHG's **build-219**
-fork of the engine. The Android build still compiles from this repository.
+fork of the engine as well as retail 1.0/1.1. The Android build still compiles from this repository.
 
 ## Quick start
+Using the Collection Chamber release (recommended):
+1. Install the game in any location
+2. Download `KHGWin-<version>-win64.zip` from [Releases](../../releases) and unzip it anywhere.
+3. Run `KHGWin.exe`. KHGWin finds the install next to or around its own folder, or
+   asks for it once ("Installed game...").
+4. No updates needen. The Collection Chamber release is already v1.1.
+5. The launcher window opens: pick your settings, then click **Play**.
 
+Using retail discs or disc images (.bin/.cue recommended):
 1. Download `KHGWin-<version>-win64.zip` from [Releases](../../releases) and unzip it anywhere.
-   Nothing is installed and nothing is written to the registry.
-2. Run `KHGWin.exe`.
-   - **Game already installed:** KHGWin finds the install next to or around its own folder, or
-     asks for it once ("Installed game...").
-   - **Not installed yet:** the 1998 installer doesn't run on 64-bit Windows, so KHGWin installs
-     the game itself from **disc 1**, a drive or a `.cue/.bin/.iso` image.
-3. If the movies and CD music are missing, KHGWin offers once to copy them from **disc 2** into
-   the install (movies from its `AVI` folder, music ripped from its audio tracks).
-4. The launcher window opens: pick your display and other settings, then click **Play**.
+2. Run `KHGWin.exe`. The 1998 installer doesn't run on 64-bit Windows, so KHGWin installs
+   the game itself from **disc 1** in a drive or a `.cue/.bin/.iso` image. This process might take a while.
+3. KHGWin detects that movies and CD music from disc 2 are missing and offers to copy them from **disc 2** into
+   the install folder (movies from its `AVI` folder, music ripped from its audio tracks). This might also take a while.
+4. **Optional** Install patch 1.1. The patch is only needed for certain mods and for multiplayer against players running 1.1.    
+5. The launcher window opens: pick your settings, then click **Play**.
 
 Full player instructions, every setting and its `KHGWin.ini` key are in
 [desktop/README-Windows.txt](desktop/README-Windows.txt), shipped in the zip as
@@ -82,20 +86,6 @@ Full player instructions, every setting and its `KHGWin.ini` key are in
 - Saves from the Android port, and hub saves, have not been tested.
 
 Please report problems with the crash report files and `KHGWin.log` attached.
-
-## Build
-
-KHGWin cross-compiles with MinGW-w64 on Linux (WSL works):
-
-```bash
-sudo apt install mingw-w64 g++-mingw-w64 cmake ninja-build nasm zip git patch
-desktop/scripts/build-windows.sh x86_64    # build/win64/KHGWin-<ver>-win64.zip
-```
-
-The first run builds the LGPL FFmpeg configuration used for the movies. A 32-bit build
-(`i686`) is kept as a fidelity reference, since the retail game is 32-bit; releases ship 64-bit
-only. CI builds both, plus the Android APK, on every push; a `v*` tag creates a draft release.
-Details in [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md).
 
 ## Documentation
 
