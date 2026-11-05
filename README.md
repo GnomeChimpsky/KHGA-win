@@ -1,4 +1,4 @@
-# KHGWin: Klingon Honor Guard for Windows 10/11
+# KHG-Win: Klingon Honor Guard for Windows 10/11
 
 A native 64-bit Windows port of *Star Trek: Klingon Honor Guard* (MicroProse, 1998), the
 **Unreal Engine 1** first-person shooter. It runs the original retail game data on modern
