@@ -1,157 +1,129 @@
-# Klingon Honor Guard — Android
+# KHGWin: Klingon Honor Guard for Windows 10/11
 
-A native Android port of *Star Trek: Klingon Honor Guard* (1998), the **Unreal Engine 1**
-first-person shooter. It boots to the menu and plays real missions end-to-end on-device, with a
-from-scratch Vulkan renderer, on-device FMV cutscenes, and both on-screen touch controls and full
-gamepad support. Runs on 32-bit and 64-bit ARM.
+A native 64-bit Windows port of *Star Trek: Klingon Honor Guard* (MicroProse, 1998), the
+**Unreal Engine 1** first-person shooter. It runs the original retail game data on modern
+Windows with a Vulkan renderer, and keeps the game looking, sounding and playing the way the
+1998 PC release does. Widescreen, high frame rates and modern controllers are supported on top
+of that, each one switchable back to the retail behaviour.
 
-The engine base is [fgsfdsfgs/UE1](https://github.com/fgsfdsfgs/UE1) (a UE1 v200 source port)
-on the [Andiweli/Unreal-Android](https://github.com/fgsfdsfgs/UE1) Android bring-up, surgically
-adapted to be binary-compatible with KHG's **build-219** fork of the engine. The renderer is a
-new Vulkan render device written against the build-219 `URenderDevice` interface, informed by the
-UT99 Vulkan driver.
+No game data is included. You need your own copy of the game: the retail CDs, or an existing
+install.
 
-No game data is included. You need your own retail copy of *Klingon Honor Guard* (original
-CD + patches, or an existing PC install) and you supply its data files yourself.
+KHGWin is a fork of the Android port
+[imjustadudegamer/Klingon-Honor-GUARD-Android](https://github.com/imjustadudegamer/Klingon-Honor-GUARD-Android)
+and shares its engine tree, which is adapted to be binary-compatible with KHG's **build-219**
+fork of the engine. The Android build still compiles from this repository.
 
-## Windows desktop port (work in progress)
+## Quick start
 
-This fork adds a native Windows 10/11 build (32-bit and 64-bit) that shares the engine tree with
-the Android build. It installs next to a retail install as `KHGWin.exe` and never modifies the
-retail files. See [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md).
+1. Download `KHGWin-<version>-win64.zip` from [Releases](../../releases) and unzip it anywhere.
+   Nothing is installed and nothing is written to the registry.
+2. Run `KHGWin.exe`.
+   - **Game already installed:** KHGWin finds the install next to or around its own folder, or
+     asks for it once ("Installed game...").
+   - **Not installed yet:** the 1998 installer doesn't run on 64-bit Windows, so KHGWin installs
+     the game itself from **disc 1**, a drive or a `.cue/.bin/.iso` image.
+3. If the movies and CD music are missing, KHGWin offers once to copy them from **disc 2** into
+   the install (movies from its `AVI` folder, music ripped from its audio tracks).
+4. The launcher window opens: pick your display and other settings, then click **Play**.
 
-## Features
+Full player instructions, every setting and its `KHGWin.ini` key are in
+[desktop/README-Windows.txt](desktop/README-Windows.txt), shipped in the zip as
+`KHGWin-README.txt`.
 
-- **Vulkan renderer** — a from-scratch `VulkanDrv` render device draws the 3D BSP world with
-  baked lightmaps, Gouraud-shaded characters/meshes, translucency, and the 2D HUD/menu at ~60 fps.
-  This is the only renderer; there is no OpenGL ES path. Runs across common mobile Vulkan drivers,
-  including Mali (with driver-specific renderer workarounds) and Adreno.
-- **On-device FMV** — the intro movie, the MicroProse splash, mission briefings, and the
-  decorated Klingon comm-frame cutscenes all decode and play through a bundled LGPL FFmpeg build.
-- **Save / load** — saving and loading game state works through the engine's hub/save system.
-- **Touch screen controls and external gamepad support** — a console-FPS-style gamepad layout with ini-tunable stick sensitivity and a low-latency right-stick look filter.
-- **Handheld-friendly UI** — semi scalable 2D fonts and HUD for small high-DPI screens.
-- **In-app data import** — if no game data is found at launch, the app lets you pick your retail
-  `Unreal` data folder or a ZIP of it with the system file picker and copies it into place. No
-  storage permission is required.
+### Requirements
 
-## Screenshot
+- Windows 10 or 11, 64-bit.
+- A GPU with a Vulkan driver.
+- *Star Trek: Klingon Honor Guard*: the retail CD, version 1.0 or patched to 1.1, or an install
+  prepared by others (such as the Collection Chamber release). Patch 1.1 is optional (it adds
+  the MicroProse splash and is needed by mods made for 1.1). No Indeo codec, no-CD exe,
+  dgVoodoo or edited `Khg.ini` is needed.
 
-![Klingon Honor Guard running on Android](docs/img/screenshot.jpg)
+## What it does
 
-## Requirements
-
-- Android 6.0+ (API 23) with Vulkan support, on **32-bit (armeabi-v7a) or 64-bit (arm64-v8a)**
-  ARM. The APK carries both builds and installs the right one automatically; saves work on either.
-- A retail copy of *Star Trek: Klingon Honor Guard*. You need its `System`, `Maps`, `Textures`,
-  `Sounds`, and `Music` directories, plus the `.avi` movie files from `System/`.
-- **Controls:** on-screen touch controls are enabled by default (move stick, look, fire / alt /
-  jump / crouch / switch, a MENU button, and Back → menu). A physical gamepad is fully supported
-  and rebindable in-game, but not required.
-
-### 1. Get the APK
-
-Download the latest signed `app-release.apk` from the
-[**Releases**](https://github.com/imjustadudegamer/Klingon-Honor-GUARD-Android/releases) page,
-or build it yourself (see [Build](#build)).
-
-### 2. Install it
-
-Copy the APK to your device and open it to install. You may need to enable *Install unknown
-apps* for your file manager or browser in Android settings the first time. Or, over USB with
-developer mode on:
-
-```sh
-adb install app-release.apk
-```
-
-### 3. Controls (touch or gamepad)
-
-On-screen touch controls are on by default, so you can play with no accessory at all. Prefer a
-physical controller? Pair a Bluetooth/USB gamepad before launching — it's fully supported and
-rebindable in the in-game settings. The game runs locked to landscape.
-
-### 4. Provide your game data (first launch)
-
-The app ships no game assets. On first launch, if no data is found, it asks for your retail
-*Klingon Honor Guard* data. Two ways:
-
-- **In-app import (easiest):** the launcher offers a **folder picker** and a **ZIP picker**.
-  Point it at your retail `Unreal` data folder (or a ZIP of it) and it copies the files into the
-  app's private game folder and starts the game. No storage permission is required. Next launches
-  go straight in.
-- **Manual (adb):** copy the data into the app's private OBB folder, preserving the original
-  layout — `/sdcard/Android/obb/com.khg.android/Unreal/System`, `/Maps`, `/Textures`, `/Sounds`,
-  `/Music`, with the `.avi` movies in `System/`. Saves are written to
-  `/sdcard/Android/obb/com.khg.android/Unreal/Save`.
-
-Exact `adb push` commands for manual staging are in **[docs/BUILD.md](docs/BUILD.md)**.
-
-> **Updating from v0.9.0 or earlier?** As of **v0.9.2** all game data, saves, and settings live in
-> one place — the app's own private OBB folder (`Android/obb/com.khg.android/Unreal`) — instead of a
-> scattered SD-card location. Because of the move:
->
-> - **You will be asked to import your game data again** on the first launch after updating. Just
->   re-run the in-app folder/ZIP import, exactly like a first install.
-> - **Your existing save games are imported automatically** the first time you launch this build.
->   Your old files are left untouched; backing up your saves first never hurts.
+- **Retail look.** A Vulkan render device lights the world at the retail Glide level, draws the
+  HUD with Glide's 16-bit colour math and handles masked, translucent and mirror surfaces like
+  Glide. Checked side by side against screenshots from the retail game in every mission.
+- **Retail startup and movies.** MicroProse splash while loading, then the title splash and the
+  legal screen, as in retail. Briefings and cutscenes play like the retail `PlayAVI`, inside the
+  Klingon console frame, with Indeo 5 transparency decoded.
+- **Music and sound.** CD tracks from ripped files, or the module music of fan-patched installs,
+  picked automatically per level so the two never play together. Reverb zones echo with a rebuild
+  of the retail Galaxy software reverb.
+- **Widescreen.** Hor+ field of view; HUD panels keep their 4:3 shape in the screen corners and
+  menus show at 4:3 with black bars. `HorPlus` and `WideHUD` switch back to the retail stretch.
+- **High frame rates.** Optional frame cap, a 1 ms floor above 1000 fps, and the retail scripts
+  that count frames instead of time (the holodeck box fade, pushers, effects) run at 60 Hz, so
+  144 or 240 fps plays like 60 fps.
+- **Input.** Keys are read as Windows key codes like the retail game, so your retail bindings
+  carry over. Raw mouse, and controllers with a twin-stick layout as soon as they are plugged in.
+- **Launcher.** A settings window before the game: display mode, any resolution, monitor, vsync,
+  frame cap, MSAA, anisotropy, field of view, widescreen, lighting, mouse, controller, audio
+  device and music, each with a short description.
+- **Saves and settings.** Kept in `Saved Games\Klingon Honor Guard`, so the install can stay in
+  Program Files. Retail saves and names are copied over on the first start. Saves move freely
+  between the retail game and KHGWin ([docs/Saves.md](docs/Saves.md)). `portable.txt` keeps
+  everything next to the exe instead.
+- **Mods.** Retail-style mods such as KHG Restored install the usual way; KHGWin picks up the
+  keys they change in `Khg.ini` on every start.
+- **Crash reports.** A readable report, a crash dump and the log go to `Crashes\` in the user
+  folder.
+- **Never touches the original files.** `Khg.exe` is only read, for the splash image.
 
 ## Known issues
 
-The port is now stable and plays end-to-end. A few rough edges remain:
+- Reading CD audio from a physical drive (the disc 2 music copy) is tested only with disc images
+  and an emulated drive. Please report how it works with a real drive.
+- The engine's own frame-rate effects remain at very high rates: jumps are about 2.6% lower at
+  500 fps and above, and some walking and collision details differ (see
+  [docs/Timing.md](docs/Timing.md)).
+- Multiplayer has not been tested.
+- Saves from the Android port, and hub saves, have not been tested.
 
-- **Some effects and fine FMV compositing details** are still being refined.
-- **Long-session engine stability** — the original UE1 game logic has latent actor-lifecycle
-  edge cases that can surface after extended combat; these are being fixed reactively.
-- **Minor graphical glitches** (occasional shimmer on some distant surfaces) may appear; the
-  reflective menu floor's shimmer is faithful to the original PC release, not a port bug.
-- **Please report issues** so they can be tracked and fixed.
+Please report problems with the crash report files and `KHGWin.log` attached.
 
 ## Build
 
-Everything needed to build is in this repository (the UE1 engine, SDL2, the renderer, audio, and
-the prebuilt SPIR-V shaders). No game data is required to build — only to run.
+KHGWin cross-compiles with MinGW-w64 on Linux (WSL works):
 
-Prerequisites: Android SDK (`android-36`), NDK `27.0.12077973`, CMake `3.22.1`, JDK 21,
-Gradle 8.13. Point Gradle at your SDK with a `local.properties`:
-
-```sh
-echo "sdk.dir=/path/to/Android/sdk" > local.properties
+```bash
+sudo apt install mingw-w64 g++-mingw-w64 cmake ninja-build nasm zip git patch
+desktop/scripts/build-windows.sh x86_64    # build/win64/KHGWin-<ver>-win64.zip
 ```
 
-Then build:
-
-```sh
-./gradlew :app:assembleDebug    # output: app/build/outputs/apk/debug/app-debug.apk
-```
-
-Prerequisite versions, SDK component install, and how to deploy/run on a device are in
-**[docs/BUILD.md](docs/BUILD.md)**.
-
-## License & credits
-
-This is an **unofficial, non-commercial fan project**, not affiliated with or endorsed by Epic
-Games, MicroProse, Microsoft, or any rights holder. It includes **no game assets** — you supply
-your own retail copy.
-
-- **Unreal Engine** © Epic Games. The engine baseline derives from publicly available UE1 v200
-  source with proprietary assets removed.
-- **Star Trek: Klingon Honor Guard** © MicroProse / Microsoft and the respective rights holders.
-- **FFmpeg** is used for movie decoding under the **LGPL-2.1** (LGPL build, dynamically linked;
-  built without `--enable-gpl` / `--enable-nonfree`). Source: <https://ffmpeg.org>.
-- Built on **[fgsfdsfgs/UE1](https://github.com/fgsfdsfgs/UE1)** and
-  **Andiweli/Unreal-Android**; uses **SDL2**, **OpenAL Soft**, and **libxmp**. The Vulkan
-  renderer architecture is informed by the UT99 Vulkan render device.
-
-Full attribution is in **[CREDITS.md](CREDITS.md)**; the full third-party license notices are in
-**[THIRDPARTY.md](THIRDPARTY.md)**.
+The first run builds the LGPL FFmpeg configuration used for the movies. A 32-bit build
+(`i686`) is kept as a fidelity reference, since the retail game is 32-bit; releases ship 64-bit
+only. CI builds both, plus the Android APK, on every push; a `v*` tag creates a draft release.
+Details in [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md).
 
 ## Documentation
 
-- **[docs/BUILD.md](docs/BUILD.md)** — prerequisites, building, deploying, running.
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — engine base, source layout, port modifications.
-- **[docs/RENDERER.md](docs/RENDERER.md)** — the Vulkan render device.
-- **[docs/FMV.md](docs/FMV.md)** — the cutscene / FMV system.
-- **[docs/CONTROLS.md](docs/CONTROLS.md)** — controller configuration reference.
-</content>
-</invoke>
+- [desktop/README-Windows.txt](desktop/README-Windows.txt): the player README, with every setting.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
+- [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md): building, release contents, CI.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): engine base, source layout, build-219 compatibility.
+- [docs/RENDERER.md](docs/RENDERER.md): the Vulkan render device.
+- [docs/FMV.md](docs/FMV.md): movies and the console frame.
+- [docs/Audio.md](docs/Audio.md): music, reverb and the audio settings.
+- [docs/Timing.md](docs/Timing.md): frame rate measurements and the frame-counting scripts.
+- [docs/Saves.md](docs/Saves.md): save compatibility between the retail game and KHGWin.
+- [docs/CONTROLS.md](docs/CONTROLS.md): controller configuration.
+- [docs/BUILD.md](docs/BUILD.md): building the Android app.
+
+## License and credits
+
+This is an **unofficial, non-commercial fan project**, not affiliated with or endorsed by Epic
+Games, MicroProse, Paramount, Microsoft or any rights holder. It contains **no game assets**; you
+supply your own copy of the game.
+
+- **Unreal Engine** © Epic Games. The engine baseline derives from publicly available UE1 v200
+  source with proprietary assets removed.
+- **Star Trek: Klingon Honor Guard** © MicroProse and the respective rights holders.
+- Built on the Android port by **imjustadudegamer**, **[fgsfdsfgs/UE1](https://github.com/fgsfdsfgs/UE1)**
+  and **Andiweli/Unreal-Android**. Uses **SDL2**, **OpenAL Soft**, **libxmp**, **ZVulkan**,
+  **volk**, **VMA**, **unshield** and **FFmpeg** (LGPL-2.1, dynamically linked; the sources of the
+  shipped DLLs are in the release's `lgpl-sources` zip).
+
+Full attribution is in [CREDITS.md](CREDITS.md); the third-party license notices are in
+[THIRDPARTY.md](THIRDPARTY.md) and in the `KHGWin-Licenses` folder of the release.
