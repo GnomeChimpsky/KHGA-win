@@ -446,12 +446,17 @@ UBOOL UNSDLClient::Exec( const char* Cmd, FOutputDevice* Out )
 			Listed |= DisplayResolutions(i).w == CurX && DisplayResolutions(i).h == CurY;
 		const UBOOL AddCur = !Listed && CurX > 0 && CurY > 0;
 		const UBOOL Full = DisplayResolutions.Num() - First >= MaxMenuResolutions;
+		// No trailing space: KlingonMenuVideo.GetAvailableRes stores the text after the last space as one
+		// more entry, so with 16 modes a trailing space made it write a 17th; the engine clamps that write onto
+		// entry 16, wiping the largest mode, and the menu then set the smallest one (1280x720) on exit.
+		const char* Sep = "";
 		if( AddCur )
-			Result.Appendf( "%ix%i ", CurX, CurY );
+			Result.Appendf( "%ix%i", CurX, CurY ), Sep = " ";
 		for( INT i=First + ( AddCur && Full ? 1 : 0 ); i<DisplayResolutions.Num(); ++i )
 		{
 			const SDL_Rect& Mode = DisplayResolutions(i);
-			Result.Appendf( "%ix%i ", Mode.w, Mode.h );
+			Result.Appendf( "%s%ix%i", Sep, Mode.w, Mode.h );
+			Sep = " ";
 		}
 #endif
 		Out->Log( *Result );
