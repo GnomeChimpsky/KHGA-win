@@ -39,14 +39,12 @@ Full player instructions, every setting and its `KHGWin.ini` key are in
 
 - Windows 10 or 11, 64-bit.
 - A GPU with a Vulkan driver.
-- *Star Trek: Klingon Honor Guard*: the retail CD, version 1.0 or patched to 1.1, or an install
-  prepared by others (such as the Collection Chamber release). Patch 1.1 is optional (it adds
-  the MicroProse splash and is needed by mods made for 1.1). No Indeo codec, no-CD exe,
-  dgVoodoo or edited `Khg.ini` is needed.
+- *Star Trek: Klingon Honor Guard*:  the Collection Chamber release, the retail CD, version 1.0 or patched to 1.1. Patch 1.1 is optional.
+  No additional fixes or files such as Indeo codecs, no-CD exe etc. should be needed.
 
 ## What it does
 
-- **Faithful to the original Glide version.** A Vulkan render device lights the world at the retail Glide 
+- **Faithful to the original Glide version.** The custom Vulkan render device lights the world at the retail Glide 
   level, draws the HUD with Glide's 16-bit colour math and handles masked, translucent and mirror surfaces like
   Glide. Checked side by side against screenshots from the retail game in every mission.
 - **Native widescreen.** Hor+ field of view; HUD panels keep their 4:3 shape in screen corners and
@@ -55,14 +53,14 @@ Full player instructions, every setting and its `KHGWin.ini` key are in
   count frames instead of time, making sure animations run properly even at high FPS. 
 - **Retail startup and movies.** Splash screens, briefings and cutscenes look and play properly.
 - **Music and sound.** The correct music files are picked and installed automatically. 
-  A rebuild of the retail Galaxy software ensures proper reverb zone echo, emulating EAX audio.
+  A rebuild of the retail Galaxy software ensures proper reverb zone echo, mirroring EAX audio.
 - **Input.** Any keyboard and mouse button can be bound. Raw mouse input and full controller support with proper twin-stick 
   layout and adjustable deadzones.
 - **Launcher.** An optional settings window before you play: set display mode, any resolution/monitor, vsync,
   frame cap, MSAA, anisotropy, field of view, widescreen, lighting presets, mouse, controller, audio
   device and music, each with a short description.
-- **Saves and settings.** Kept in `Saved Games\Klingon Honor Guard`, so the install can stay untouched, therever you want it. 
-  Program Files. Retail saves and names are copied over on the first start. Saves move freely
+- **Saves and settings.** Kept in `Saved Games\Klingon Honor Guard`, so the install can stay untouched, wherever you want it. 
+  Program Files. Existing retail saves and names are copied over on first start. Saves move freely
   between the retail game and KHGWin ([docs/Saves.md](docs/Saves.md)). An optional portable setting keeps
   everything next to the exe instead.
 - **Mods.** Mods such as KHG Restored are supported; KHGWin picks up the keys they change in `Khg.ini` on every start.
@@ -72,8 +70,8 @@ Full player instructions, every setting and its `KHGWin.ini` key are in
 
 ## Known issues
 
-- Reading CD audio from a physical drive (the disc 2 music copy) is tested only with disc images
-  and an emulated drive. Please report how it works with a real drive.
+- Reading CD audio from a physical drive (the disc 2 music copy) is tested only with real discs. 
+  Please report how it works with images on an emulated drive.
 - Minor frame-rate effects at very high rates: jumps are about 2.6% lower at
   500 fps and above, and some walking and collision details differ (see
   [docs/Timing.md](docs/Timing.md)).
