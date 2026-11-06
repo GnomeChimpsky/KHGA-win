@@ -46,40 +46,35 @@ Full player instructions, every setting and its `KHGWin.ini` key are in
 
 ## What it does
 
-- **Retail look.** A Vulkan render device lights the world at the retail Glide level, draws the
-  HUD with Glide's 16-bit colour math and handles masked, translucent and mirror surfaces like
+- **Faithful to the original Glide version.** A Vulkan render device lights the world at the retail Glide 
+  level, draws the HUD with Glide's 16-bit colour math and handles masked, translucent and mirror surfaces like
   Glide. Checked side by side against screenshots from the retail game in every mission.
-- **Retail startup and movies.** MicroProse splash while loading, then the title splash and the
-  legal screen, as in retail. Briefings and cutscenes play like the retail `PlayAVI`, inside the
-  Klingon console frame, with Indeo 5 transparency decoded.
-- **Music and sound.** CD tracks from ripped files, or the module music of fan-patched installs,
-  picked automatically per level so the two never play together. Reverb zones echo with a rebuild
-  of the retail Galaxy software reverb.
-- **Widescreen.** Hor+ field of view; HUD panels keep their 4:3 shape in the screen corners and
-  menus show at 4:3 with black bars. `HorPlus` and `WideHUD` switch back to the retail stretch.
-- **High frame rates.** Optional frame cap, a 1 ms floor above 1000 fps, and the retail scripts
-  that count frames instead of time (the holodeck box fade, pushers, effects) run at 60 Hz, so
-  144 or 240 fps plays like 60 fps.
-- **Input.** Keys are read as Windows key codes like the retail game, so your retail bindings
-  carry over. Raw mouse, and controllers with a twin-stick layout as soon as they are plugged in.
-- **Launcher.** A settings window before the game: display mode, any resolution, monitor, vsync,
-  frame cap, MSAA, anisotropy, field of view, widescreen, lighting, mouse, controller, audio
+- **Native widescreen.** Hor+ field of view; HUD panels keep their 4:3 shape in screen corners and
+  menus show at 4:3 with black bars. 
+- **High frame rates.** Play at any framerate and use the optional frame cap. Retail scripts and enhancements that 
+  count frames instead of time, making sure animations run properly even at high FPS. 
+- **Retail startup and movies.** Splash screens, briefings and cutscenes look and play properly.
+- **Music and sound.** The correct music files are picked and installed automatically. 
+  A rebuild of the retail Galaxy software ensures proper reverb zone echo, emulating EAX audio.
+- **Input.** Any keyboard and mouse button can be bound. Raw mouse input and full controller support with proper twin-stick 
+  layout and adjustable deadzones.
+- **Launcher.** An optional settings window before you play: set display mode, any resolution/monitor, vsync,
+  frame cap, MSAA, anisotropy, field of view, widescreen, lighting presets, mouse, controller, audio
   device and music, each with a short description.
-- **Saves and settings.** Kept in `Saved Games\Klingon Honor Guard`, so the install can stay in
+- **Saves and settings.** Kept in `Saved Games\Klingon Honor Guard`, so the install can stay untouched, therever you want it. 
   Program Files. Retail saves and names are copied over on the first start. Saves move freely
-  between the retail game and KHGWin ([docs/Saves.md](docs/Saves.md)). `portable.txt` keeps
+  between the retail game and KHGWin ([docs/Saves.md](docs/Saves.md)). An optional portable setting keeps
   everything next to the exe instead.
-- **Mods.** Retail-style mods such as KHG Restored install the usual way; KHGWin picks up the
-  keys they change in `Khg.ini` on every start.
-- **Crash reports.** A readable report, a crash dump and the log go to `Crashes\` in the user
+- **Mods.** Mods such as KHG Restored are supported; KHGWin picks up the keys they change in `Khg.ini` on every start.
+- **Crash reports.** A readable report, crash dump and log go to `Crashes\` in the user
   folder.
-- **Never touches the original files.** `Khg.exe` is only read, for the splash image.
+- **Never touches original game files.**
 
 ## Known issues
 
 - Reading CD audio from a physical drive (the disc 2 music copy) is tested only with disc images
   and an emulated drive. Please report how it works with a real drive.
-- The engine's own frame-rate effects remain at very high rates: jumps are about 2.6% lower at
+- Minor frame-rate effects at very high rates: jumps are about 2.6% lower at
   500 fps and above, and some walking and collision details differ (see
   [docs/Timing.md](docs/Timing.md)).
 - Multiplayer has not been tested.
