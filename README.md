@@ -1,4 +1,4 @@
-# KHG-Win: Klingon Honor Guard, a port and comprehensive fixpack for Windows 10/11
+# KHGA-Win: Klingon Honor Guard, a port and comprehensive fixpack for Windows 10/11
 
 A native 64-bit Windows port of *Star Trek: Klingon Honor Guard* (MicroProse, 1998), the
 **Unreal Engine 1** first-person shooter. It runs the original retail game data on modern
@@ -8,7 +8,7 @@ Windows with a Vulkan renderer, and keeps the game looking, sounding and playing
 No game data is included. You need your own copy of the game: the retail CDs, disc images or an existing
 install. KHGWin does not overwrite files or write anything to the registry.
 
-KHGWin is a fork of the Android port
+KHGA-Win is a fork of the Android port
 [imjustadudegamer/Klingon-Honor-GUARD-Android](https://github.com/imjustadudegamer/Klingon-Honor-GUARD-Android)
 and shares its engine tree, which is adapted to be binary-compatible with KHG's **build-219**
 fork of the engine as well as retail 1.0/1.1. The Android build still compiles from this repository.
